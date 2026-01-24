@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import winsound
 import threading
 import requests
+import os
 
 # ================= НАСТРОЙКИ =================
 MIN_24H_VOLUME = 70_000_000
@@ -27,8 +28,8 @@ EMA20_PROXIMITY_MULT = 0.5
 COOLDOWN_BARS = 0
 SLEEP = 300
 
-CHAT_ID = "7153755338"
-BOT_TOKEN = "7934041234:AAHbmGR-tWRZR3t_Z_Xr1U6Xszbx04-0xTY"
+CHAT_ID = os.getenv("CHAT_ID")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 client = Client()
 
