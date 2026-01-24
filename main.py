@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import time
 from datetime import datetime, timezone
-import winsound
 import threading
 import requests
 import os
@@ -41,11 +40,6 @@ def send_telegram(message: str):
         requests.post(url, data=payload, timeout=10)
     except Exception as e:
         print(f"Ошибка Telegram: {e}")
-
-def beep_signal():
-    def _beep():
-        winsound.Beep(500, 500)
-    threading.Thread(target=_beep, daemon=True).start()
 
 # ================= VWAP =================
 def calculate_vwap(df):
