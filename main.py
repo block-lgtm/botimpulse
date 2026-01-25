@@ -191,7 +191,6 @@ def main():
             try:
                 res = check_volume_signal(s)
                 if res:
-                    beep_signal()
                     found += 1
 
                     # LOW для BUY_TREND, HIGH для SELL_TREND
