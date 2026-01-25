@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 import threading
 import requests
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ================= НАСТРОЙКИ =================
 MIN_24H_VOLUME = 70_000_000
