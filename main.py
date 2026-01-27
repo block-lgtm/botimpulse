@@ -1,6 +1,5 @@
 from binance.client import Client
 import pandas as pd
-import numpy as np
 import time
 from datetime import datetime, timezone
 import requests
@@ -20,15 +19,15 @@ EMA_FAST = 20
 EMA_SLOW = 200
 
 MIN_BODY_TREND = 10.0
-MIN_BODY_COUNTER = 0.0  # контртренд хвостатые свечи допускаются
+MIN_BODY_COUNTER = 10.0  # FIX: как в TV
 
 ATR_LEN = 50
 ATR_GAP_MULT = 0.8
 EMA20_PROXIMITY_MULT = 0.5
-EMA200_PROXIMITY_MULT = 1.0  # минимальная дистанция EMA200 от VWAP
+EMA200_PROXIMITY_MULT = 1.0
 
 COOLDOWN_BARS = 0
-SLEEP = 300  # 5 минут
+SLEEP = 300
 
 CHAT_ID = os.getenv("CHAT_ID")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -44,19 +43,29 @@ def send_telegram(message: str):
     except Exception as e:
         print(f"Ошибка Telegram: {e}")
 
-# ================= VWAP =================
-def calculate_vwap(df):
+# ================= SESSION VWAP =================
+def calculate_session_vwap(df):
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["open_time"], unit="ms").dt.date
     tp = (df["high"] + df["low"] + df["close"]) / 3
-    return (tp * df["volume"]).cumsum() / df["volume"].cumsum()
+    df["tpv"] = tp * df["volume"]
+    df["cum_tpv"] = df.groupby("date")["tpv"].cumsum()
+    df["cum_vol"] = df.groupby("date")["volume"].cumsum()
+    return df["cum_tpv"] / df["cum_vol"]
 
 # ================= ATR =================
-def calculate_atr(df, period=50):
-    high_low = df['high'] - df['low']
-    high_close = (df['high'] - df['close'].shift(1)).abs()
-    low_close = (df['low'] - df['close'].shift(1)).abs()
-    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    atr = tr.rolling(period).mean()
-    return atr
+def calculate_atr(df, period):
+    hl = df["high"] - df["low"]
+    hc = (df["high"] - df["close"].shift()).abs()
+    lc = (df["low"] - df["close"].shift()).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
+
+# ================= COOLDOWN =================
+def has_recent_spike(series, bars):
+    if bars == 0:
+        return False
+    return series[-bars:].any()
 
 # ================= LIQUID SYMBOLS =================
 def get_liquid_futures_symbols():
@@ -81,70 +90,80 @@ def check_volume_signal(symbol):
         "volume","close_time","quote_volume",
         "trades","taker_buy_base","taker_buy_quote","ignore"
     ])
+
     for c in ["open","high","low","close","volume"]:
         df[c] = df[c].astype(float)
 
-    # ===== EMA =====
+    # ===== EMA / ATR / VWAP =====
     df["ema20"] = df["close"].ewm(span=EMA_FAST, adjust=False).mean()
     df["ema200"] = df["close"].ewm(span=EMA_SLOW, adjust=False).mean()
-
-    # ===== ATR =====
     df["atr"] = calculate_atr(df, ATR_LEN)
-
-    # ===== VWAP =====
-    df["vwap"] = calculate_vwap(df)
+    df["vwap"] = calculate_session_vwap(df)
 
     # ===== Volume =====
     df["quote_volume"] = df["close"] * df["volume"]
-    avg_volume = df["quote_volume"][:-2].mean() if len(df) > 2 else df["quote_volume"].mean()
-    last = df.iloc[-2]  # последняя закрытая свеча
+    avg_vol = df["quote_volume"][:-2].mean()
+    last = df.iloc[-2]
 
-    vol_x = last["quote_volume"] / avg_volume if avg_volume > 0 else 0
-    spike_trend = last["quote_volume"] >= avg_volume * VOL_MULT_TREND
-    spike_counter = last["quote_volume"] >= avg_volume * VOL_MULT_COUNTER
+    spike_trend = last["quote_volume"] >= avg_vol * VOL_MULT_TREND
+    spike_counter = last["quote_volume"] >= avg_vol * VOL_MULT_COUNTER
+
+    recent_spike = (
+        has_recent_spike(df["quote_volume"][:-2] >= avg_vol * VOL_MULT_TREND, COOLDOWN_BARS) or
+        has_recent_spike(df["quote_volume"][:-2] >= avg_vol * VOL_MULT_COUNTER, COOLDOWN_BARS)
+    )
 
     # ===== Candle =====
     body = abs(last["close"] - last["open"])
-    candle_range = last["high"] - last["low"]
-    body_pct = 0 if candle_range == 0 else body / candle_range * 100
+    rng = last["high"] - last["low"]
+    body_pct = 0 if rng == 0 else body / rng * 100
+
     bull = last["close"] > last["open"]
     bear = last["close"] < last["open"]
 
     strong_body_trend = body_pct >= MIN_BODY_TREND
     strong_body_counter = body_pct >= MIN_BODY_COUNTER
 
-    # ===== Conditions =====
-    below_ema20 = last["low"] < last["ema20"]
-    above_ema20 = last["high"] > last["ema20"]
-    below_vwap = last["low"] < last["vwap"]
-    above_vwap = last["high"] > last["vwap"]
+    # ===== PRICE vs EMA/VWAP (1:1 TV) =====
+    below_ema20 = last["open"] < last["ema20"] and last["close"] < last["ema20"]
+    above_ema20 = last["open"] > last["ema20"] and last["close"] > last["ema20"]
 
-    buy_low_condition = last["low"] < last["ema20"] and last["low"] < last["ema200"] and last["low"] < last["vwap"]
-    sell_high_condition = last["high"] > last["ema20"] and last["high"] > last["ema200"] and last["high"] > last["vwap"]
+    below_vwap = last["open"] < last["vwap"] and last["close"] < last["vwap"]
+    above_vwap = last["open"] > last["vwap"] and last["close"] > last["vwap"]
+
+    buy_low_condition = last["low"] < last["ema20"] and last["low"] < last["ema200"]
+    sell_high_condition = last["high"] > last["ema20"] and last["high"] > last["ema200"]
 
     bull_trend = last["ema20"] > last["ema200"]
     bear_trend = last["ema20"] < last["ema200"]
 
-    atr_value = last["atr"]
+    atr = last["atr"]
 
-    emas_far_enough = abs(last["ema20"] - last["ema200"]) >= atr_value * ATR_GAP_MULT
-    ema20_far_vwap = abs(last["ema20"] - last["vwap"]) >= atr_value * EMA20_PROXIMITY_MULT
-    ema200_far_vwap = abs(last["ema200"] - last["vwap"]) >= atr_value * EMA200_PROXIMITY_MULT
-    ema20_far_ema200 = abs(last["ema20"] - last["ema200"]) >= atr_value * EMA20_PROXIMITY_MULT
+    emas_far_enough = abs(last["ema20"] - last["ema200"]) >= atr * ATR_GAP_MULT
+    ema20_far_vwap = abs(last["ema20"] - last["vwap"]) >= atr * EMA20_PROXIMITY_MULT
+    ema200_far_vwap = abs(last["ema200"] - last["vwap"]) >= atr * EMA200_PROXIMITY_MULT
+    ema20_far_ema200 = abs(last["ema20"] - last["ema200"]) >= atr * EMA20_PROXIMITY_MULT
+
     ema20_clear_zone = ema20_far_vwap and ema20_far_ema200 and ema200_far_vwap
 
     signals = []
 
-    # ===== TREND SIGNALS =====
-    if spike_trend and bull and strong_body_trend and buy_low_condition and bull_trend and emas_far_enough and ema20_far_vwap:
+    # ===== TREND =====
+    if (spike_trend and bull and strong_body_trend and below_ema20 and below_vwap and
+        bull_trend and emas_far_enough and buy_low_condition and ema20_far_vwap and not recent_spike):
         signals.append("BUY_TREND")
-    if spike_trend and bear and strong_body_trend and sell_high_condition and bear_trend and emas_far_enough and ema20_far_vwap:
+
+    if (spike_trend and bear and strong_body_trend and above_ema20 and above_vwap and
+        bear_trend and emas_far_enough and sell_high_condition and ema20_far_vwap and not recent_spike):
         signals.append("SELL_TREND")
 
-    # ===== COUNTER TREND SIGNALS =====
-    if spike_counter and bull and strong_body_counter and below_ema20 and below_vwap and bear_trend and emas_far_enough and ema20_clear_zone:
+    # ===== COUNTER =====
+    if (spike_counter and bull and strong_body_counter and below_ema20 and below_vwap and
+        bear_trend and emas_far_enough and ema20_clear_zone and not recent_spike):
         signals.append("BUY_COUNTER")
-    if spike_counter and bear and strong_body_counter and above_ema20 and above_vwap and bull_trend and emas_far_enough and ema20_clear_zone:
+
+    if (spike_counter and bear and strong_body_counter and above_ema20 and above_vwap and
+        bull_trend and emas_far_enough and ema20_clear_zone and not recent_spike):
         signals.append("SELL_COUNTER")
 
     if not signals:
@@ -153,33 +172,25 @@ def check_volume_signal(symbol):
     return {
         "symbol": symbol,
         "signals": signals,
-        "volume_ratio": vol_x,
-        "volText": f"x{vol_x:.2f}",
         "close": last["close"],
         "low": last["low"],
         "high": last["high"],
         "ema20": last["ema20"],
         "ema200": last["ema200"],
-        "vwap": last["vwap"]
+        "vwap": last["vwap"],
+        "volText": f"x{last['quote_volume']/avg_vol:.2f}"
     }
 
-# ================= WAIT =================
+# ================= MAIN =================
 def sleep_until_next_5m():
     now = datetime.now(timezone.utc)
-    wait = 300 - ((now.minute * 60 + now.second) % 300)
-    time.sleep(wait)
+    time.sleep(300 - ((now.minute * 60 + now.second) % 300))
 
-# ================= MAIN =================
 def main():
     symbols = get_liquid_futures_symbols()
-    last_update = time.time()
     print(f"🚀 Старт | Монет: {len(symbols)}")
 
     while True:
-        if time.time() - last_update > 3600:
-            symbols = get_liquid_futures_symbols()
-            last_update = time.time()
-
         print("\n🔍 Проверка сигналов...")
         found = 0
 
@@ -195,8 +206,7 @@ def main():
                         f"EMA20: {res['ema20']:.6f}\n"
                         f"EMA200: {res['ema200']:.6f}\n"
                         f"VWAP: {res['vwap']:.6f}\n"
-                        f"VOL {res['volText']}\n"
-                        f"LOW: {res['low']:.6f} HIGH: {res['high']:.6f}"
+                        f"VOL {res['volText']}"
                     )
                     print(msg)
                     send_telegram(msg)
