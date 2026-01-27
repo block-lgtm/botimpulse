@@ -34,6 +34,21 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 client = Client()
 
+BLACKLIST = {
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT",
+    "SOLUSDT",
+    "XRPUSDT",
+    "DOGEUSDT",
+    "ADAUSDT",
+    "PEPEUSDT",
+    "SUIUSDT",
+    "LINKUSDT",
+    "AVAXUSDT",
+    "LTCUSDT",
+}
+
 # ================= TELEGRAM =================
 def send_telegram(message: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -70,12 +85,23 @@ def has_recent_spike(series, bars):
 # ================= LIQUID SYMBOLS =================
 def get_liquid_futures_symbols():
     tickers = client._request_futures_api(method="get", path="ticker/24hr")
-    return [
-        t["symbol"]
-        for t in tickers
-        if t["symbol"].endswith("USDT")
-        and float(t["quoteVolume"]) >= MIN_24H_VOLUME
-    ]
+
+    symbols = []
+    for t in tickers:
+        symbol = t["symbol"]
+
+        if not symbol.endswith("USDT"):
+            continue
+
+        if symbol in BLACKLIST:
+            continue  # 🔪 режем сразу
+
+        if float(t["quoteVolume"]) < MIN_24H_VOLUME:
+            continue
+
+        symbols.append(symbol)
+
+    return symbols
 
 # ================= SIGNAL CHECK =================
 def check_volume_signal(symbol):
