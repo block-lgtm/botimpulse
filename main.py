@@ -10,7 +10,8 @@ load_dotenv()
 
 # ================= НАСТРОЙКИ =================
 MIN_24H_VOLUME = 70_000_000
-LOOKBACK_CANDLES = 108
+LOOKBACK_CANDLES = 1500
+VOLUME_LOOKBACK = 108
 
 VOL_MULT_TREND = 2.0
 VOL_MULT_COUNTER = 5.0
@@ -128,7 +129,7 @@ def check_volume_signal(symbol):
 
     # ===== Volume =====
     df["quote_volume"] = df["close"] * df["volume"]
-    avg_vol = df["quote_volume"][:-2].mean()
+    avg_vol = df["quote_volume"].iloc[-(VOLUME_LOOKBACK+2):-2].mean()
     last = df.iloc[-2]
 
     spike_trend = last["quote_volume"] >= avg_vol * VOL_MULT_TREND
