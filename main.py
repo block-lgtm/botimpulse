@@ -210,7 +210,6 @@ def check_volume_signal(symbol):
 
 # ================= MAIN =================
 def sleep_until_next_5m():
-def sleep_until_next_5m():
     now = datetime.now(timezone.utc)
     # Ждем до начала следующей свечи + 3 секунды на запас
     time.sleep(300 - ((now.minute * 60 + now.second) % 300) + 3)
