@@ -37,17 +37,6 @@ client = Client()
 
 BLACKLIST = {
     "BTCUSDT",
-    "ETHUSDT",
-    "BNBUSDT",
-    "SOLUSDT",
-    "XRPUSDT",
-    "DOGEUSDT",
-    "ADAUSDT",
-    "PEPEUSDT",
-    "SUIUSDT",
-    "LINKUSDT",
-    "AVAXUSDT",
-    "LTCUSDT",
 }
 
 # ================= TELEGRAM =================
