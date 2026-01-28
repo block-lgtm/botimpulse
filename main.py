@@ -4,9 +4,23 @@ import time
 from datetime import datetime, timezone
 import requests
 import os
+import pandas as pd
+from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# ================= EXCEL =================
+EXCEL_PATH = r"C:\Users\NVK\Desktop\CheckIndicator.xlsx"
+
+try:
+    df_excel = pd.read_excel(EXCEL_PATH, engine="openpyxl")
+except FileNotFoundError:
+    # Если файла нет — создаём пустой DataFrame с нужными колонками
+    df_excel = pd.DataFrame(columns=[
+        "Дата", "Время", "Тикет", "Сигнал", "Импульс"
+    ])
+
 
 # ================= НАСТРОЙКИ =================
 MIN_24H_VOLUME = 70_000_000
@@ -223,9 +237,27 @@ def main():
 
         for s in symbols:
             try:
+                # --- Пропускаем черный список ---
+                if s in BLACKLIST:
+                    continue
+
                 res = check_volume_signal(s)
                 if res:
                     found += 1
+
+                    # ===== Добавляем в Excel =====
+                    now = datetime.now()
+                    new_row = {
+                        "Дата": now.date().strftime("%Y-%m-%d"),
+                        "Время": now.strftime("%H:%M"),
+                        "Тикет": res['symbol'],
+                        "Сигнал": ','.join(res['signals']),
+                        "Импульс": res['volume_ratio']  # обязательно добавь в check_volume_signal!
+                    }
+                    df_excel = pd.concat([df_excel, pd.DataFrame([new_row])], ignore_index=True)
+                    df_excel.to_excel(EXCEL_PATH, index=False, engine="openpyxl")
+
+                    # ===== Telegram и вывод =====
                     msg = (
                         f"🔥 {res['symbol']}\n"
                         f"Тип: {', '.join(res['signals'])}\n"
@@ -237,11 +269,9 @@ def main():
                     )
                     print(msg)
                     send_telegram(msg)
+
             except Exception as e:
                 print(f"{s}: {e}")
 
         print(f"✅ Найдено сигналов: {found}")
         sleep_until_next_5m()
-
-if __name__ == "__main__":
-    main()
