@@ -121,6 +121,14 @@ def check_volume_signal(symbol):
     avg_vol = df["quote_volume"].iloc[-(VOLUME_LOOKBACK+2):-2].mean()
     last = df.iloc[-2]
 
+    # ===== PREVIOUS VOLUME CHECK (3 candles before) =====
+    prev_candles = df.iloc[-5:-2]      # 3 свечи ДО анализируемой
+    last_qv = last["quote_volume"]
+
+    prev_vol_higher_count = int(
+        (prev_candles["quote_volume"] > last_qv).sum()
+    )
+
     spike_trend = last["quote_volume"] >= avg_vol * VOL_MULT_TREND
     spike_counter = last["quote_volume"] >= avg_vol * VOL_MULT_COUNTER
 
@@ -194,7 +202,8 @@ def check_volume_signal(symbol):
         "ema20": last["ema20"],
         "ema200": last["ema200"],
         "vwap": last["vwap"],
-        "volText": f"x{last['quote_volume']/avg_vol:.2f}"
+        "volText": f"x{last['quote_volume']/avg_vol:.2f}",
+        "prevVolCount": prev_vol_higher_count
     }
 
 # ================= MAIN =================
@@ -224,6 +233,7 @@ def main():
                         f"EMA200: {res['ema200']:.6f}\n"
                         f"VWAP: {res['vwap']:.6f}\n"
                         f"VOL {res['volText']}"
+                        f"Prev volume higher: {res['prevVolCount']}/3\n"
                     )
                     print(msg)
                     send_telegram(msg)
