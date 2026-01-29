@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ================= НАСТРОЙКИ =================
-MIN_24H_VOLUME = 70_000_000
+MIN_24H_VOLUME = 40_000_000
 LOOKBACK_CANDLES = 1500
 VOLUME_LOOKBACK = 108
 
@@ -193,6 +193,9 @@ def check_volume_signal(symbol):
     if not signals:
         return None
 
+    ticker_24h = client.futures_ticker(symbol=symbol)
+    volume_24h = float(ticker_24h["quoteVolume"])
+
     return {
         "symbol": symbol,
         "signals": signals,
@@ -203,7 +206,8 @@ def check_volume_signal(symbol):
         "ema200": last["ema200"],
         "vwap": last["vwap"],
         "volText": f"x{last['quote_volume']/avg_vol:.2f}",
-        "prevVolCount": prev_vol_higher_count
+        "prevVolCount": prev_vol_higher_count,
+        "volume_24h": volume_24h
     }
 
 # ================= MAIN =================
@@ -219,12 +223,15 @@ def main():
     while True:
         print("\n🔍 Проверка сигналов...")
         found = 0
-
+        
         for s in symbols:
             try:
                 res = check_volume_signal(s)
                 if res:
                     found += 1
+                    
+                    vol24 = res["volume_24h"] / 1_000_000
+
                     msg = (
                         f"🔥 {res['symbol']}\n"
                         f"Тип: {', '.join(res['signals'])}\n"
@@ -234,6 +241,7 @@ def main():
                         f"VWAP: {res['vwap']:.6f}\n"
                         f"VOL {res['volText']}"
                         f"Prev volume higher: {res['prevVolCount']}/3\n"
+                        f"VOL 24h: {vol24:.1f}M USDT\n"
                     )
                     print(msg)
                     send_telegram(msg)
