@@ -239,7 +239,7 @@ def main():
                         f"EMA20: {res['ema20']:.6f}\n"
                         f"EMA200: {res['ema200']:.6f}\n"
                         f"VWAP: {res['vwap']:.6f}\n"
-                        f"VOL {res['volText']}"
+                        f"VOL {res['volText']}\n"
                         f"Prev volume higher: {res['prevVolCount']}/3\n"
                         f"VOL 24h: {vol24:.1f}M USDT\n"
                     )
