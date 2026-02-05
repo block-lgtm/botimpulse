@@ -190,6 +190,14 @@ def check_volume_signal(symbol):
         bull_trend and emas_far_enough and ema20_clear_zone and not recent_spike):
         signals.append("SELL_COUNTER")
 
+    # ===== SWAP COUNTER SIGNAL NAMES =====
+    signals = [
+        "SELL_COUNTER" if s == "BUY_COUNTER"
+        else "BUY_COUNTER" if s == "SELL_COUNTER"
+        else s
+        for s in signals
+    ]
+
     if not signals:
         return None
 
