@@ -190,14 +190,6 @@ def check_volume_signal(symbol):
         bull_trend and emas_far_enough and ema20_clear_zone and not recent_spike):
         signals.append("SELL_COUNTER")
 
-    # ===== SWAP COUNTER SIGNAL NAMES =====
-    signals = [
-        "SELL_COUNTER" if s == "BUY_COUNTER"
-        else "BUY_COUNTER" if s == "SELL_COUNTER"
-        else s
-        for s in signals
-    ]
-
     if not signals:
         return None
 
@@ -230,33 +222,64 @@ def main():
 
     while True:
         print("\n🔍 Проверка сигналов...")
-        found = 0
-        
+
+        results = []
+
+        # ===== 1. Собираем все сигналы =====
         for s in symbols:
             try:
                 res = check_volume_signal(s)
                 if res:
-                    found += 1
-                    
-                    vol24 = res["volume_24h"] / 1_000_000
-
-                    msg = (
-                        f"🔥 {res['symbol']}\n"
-                        f"Тип: {', '.join(res['signals'])}\n"
-                        f"Close: {res['close']:.6f}\n"
-                        f"EMA20: {res['ema20']:.6f}\n"
-                        f"EMA200: {res['ema200']:.6f}\n"
-                        f"VWAP: {res['vwap']:.6f}\n"
-                        f"VOL {res['volText']}\n"
-                        f"Prev volume higher: {res['prevVolCount']}/3\n"
-                        f"VOL 24h: {vol24:.1f}M USDT\n"
-                    )
-                    print(msg)
-                    send_telegram(msg)
+                    results.append(res)
             except Exception as e:
                 print(f"{s}: {e}")
 
-        print(f"✅ Найдено сигналов: {found}")
+        # ===== 2. Считаем COUNTER =====
+        counter_count = sum(
+            1 for r in results
+            if any(sig in ("BUY_COUNTER", "SELL_COUNTER") for sig in r["signals"])
+        )
+
+        skip_counters = counter_count >= 2
+
+        if skip_counters:
+            print(f"⛔ Найдено {counter_count} COUNTER → counter-сигналы пропущены")
+
+        found = 0
+
+        # ===== 3. Фильтрация + отправка =====
+        for res in results:
+            signals = res["signals"]
+
+            # убираем ТОЛЬКО counter, если их >= 2
+            if skip_counters:
+                signals = [
+                    s for s in signals
+                    if s not in ("BUY_COUNTER", "SELL_COUNTER")
+                ]
+
+            if not signals:
+                continue  # нечего отправлять
+
+            found += 1
+            vol24 = res["volume_24h"] / 1_000_000
+
+            msg = (
+                f"🔥 {res['symbol']}\n"
+                f"Тип: {', '.join(signals)}\n"
+                f"Close: {res['close']:.6f}\n"
+                f"EMA20: {res['ema20']:.6f}\n"
+                f"EMA200: {res['ema200']:.6f}\n"
+                f"VWAP: {res['vwap']:.6f}\n"
+                f"VOL {res['volText']}\n"
+                f"Prev volume higher: {res['prevVolCount']}/3\n"
+                f"VOL 24h: {vol24:.1f}M USDT\n"
+            )
+
+            print(msg)
+            send_telegram(msg)
+
+        print(f"✅ Отправлено сигналов: {found}")
         sleep_until_next_5m()
 
 if __name__ == "__main__":
