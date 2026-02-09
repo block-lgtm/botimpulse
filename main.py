@@ -248,6 +248,7 @@ def main():
         found = 0
 
         # ===== 3. Фильтрация + отправка с корреляцией к BTC =====
+        # ===== 3. Фильтрация + отправка с корреляцией к BTC =====
         # Загружаем BTCUSDT один раз за цикл (9 часов = 108 свечей по 5 мин)
         try:
             klines_btc = client.futures_klines(
@@ -282,21 +283,33 @@ def main():
             # ===== КОРРЕЛЯЦИЯ С BTC =====
             try:
                 if btc_returns is not None:
-                    # Берем последние N свечей для символа, совпадающие с BTC
-                    df_symbol = pd.DataFrame([res["close"]], columns=["close"])
-                    # Для корреляции берем просто последнюю свечу для примера
-                    # Можно расширить на больше свечей при необходимости
-                    symbol_returns = df_symbol["close"].pct_change()
-                    corr = btc_returns.iloc[-len(symbol_returns):].corr(symbol_returns)
-                    corr_text = f"Corr BTC: {corr:.2f}" if corr is not None else "Corr BTC: N/A"
+                    # Берём последние 108 свечей для символа
+                    klines_sym = client.futures_klines(
+                        symbol=res["symbol"],
+                        interval=Client.KLINE_INTERVAL_5MINUTE,
+                        limit=108
+                    )
+                    df_sym = pd.DataFrame(klines_sym, columns=[
+                        "open_time","open","high","low","close",
+                        "volume","close_time","quote_volume",
+                        "trades","taker_buy_base","taker_buy_quote","ignore"
+                    ])
+                    df_sym["close"] = df_sym["close"].astype(float)
+                    symbol_returns = df_sym["close"].pct_change()
+
+                    # Совпадающие длины
+                    btc_subset = btc_returns[-len(symbol_returns):]
+
+                    corr = btc_subset.corr(symbol_returns)
+                    corr_text = f"{corr:.2f}" if corr is not None else "N/A"
                 else:
-                    corr_text = "Corr BTC: N/A"
-            except Exception:
-                corr_text = "Corr BTC: N/A"
+                    corr_text = "N/A"
+            except Exception as e:
+                print(f"Ошибка при расчёте корреляции для {res['symbol']}: {e}")
+                corr_text = "N/A"
 
-            found += 1
+            # ===== Формируем сообщение =====
             vol24 = res["volume_24h"] / 1_000_000
-
             msg = (
                 f"🔥 {res['symbol']}\n"
                 f"Тип: {', '.join(signals)}\n"
