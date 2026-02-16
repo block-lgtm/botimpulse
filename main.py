@@ -4,31 +4,43 @@ import time
 from datetime import datetime, timezone
 import requests
 import os
+import json
+import argparse
 from dotenv import load_dotenv
+
+# ===== ЗАГРУЗКА КОНФИГА =====
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", required=True)
+args = parser.parse_args()
+
+with open(args.config, "r") as f:
+    cfg = json.load(f)
+
+BOT_NAME = cfg["NAME"]
 
 load_dotenv()
 
 # ================= НАСТРОЙКИ =================
-MIN_24H_VOLUME = 40_000_000
-LOOKBACK_CANDLES = 1500
-VOLUME_LOOKBACK = 108
+MIN_24H_VOLUME = cfg["MIN_24H_VOLUME"]
+LOOKBACK_CANDLES = cfg["LOOKBACK_CANDLES"]
+VOLUME_LOOKBACK = cfg["VOLUME_LOOKBACK"]
 
-VOL_MULT_TREND = 2.0
-VOL_MULT_COUNTER = 5.0
+VOL_MULT_TREND = cfg["VOL_MULT_TREND"]
+VOL_MULT_COUNTER = cfg["VOL_MULT_COUNTER"]
 
-EMA_FAST = 20
-EMA_SLOW = 200
+EMA_FAST = cfg["EMA_FAST"]
+EMA_SLOW = cfg["EMA_SLOW"]
 
-MIN_BODY_TREND = 10.0
-MIN_BODY_COUNTER = 10.0  # FIX: как в TV
+MIN_BODY_TREND = cfg["MIN_BODY_TREND"]
+MIN_BODY_COUNTER = cfg["MIN_BODY_COUNTER"]
 
-ATR_LEN = 50
-ATR_GAP_MULT = 0.8
-EMA20_PROXIMITY_MULT = 0.5
-EMA200_PROXIMITY_MULT = 1.0
+ATR_LEN = cfg["ATR_LEN"]
+ATR_GAP_MULT = cfg["ATR_GAP_MULT"]
+EMA20_PROXIMITY_MULT = cfg["EMA20_PROXIMITY_MULT"]
+EMA200_PROXIMITY_MULT = cfg["EMA200_PROXIMITY_MULT"]
 
-COOLDOWN_BARS = 0
-SLEEP = 300
+COOLDOWN_BARS = cfg["COOLDOWN_BARS"]
+SLEEP = cfg["SLEEP"]
 
 CHAT_ID = os.getenv("CHAT_ID")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -311,6 +323,7 @@ def main():
             # ===== Формируем сообщение =====
             vol24 = res["volume_24h"] / 1_000_000
             msg = (
+                f"🤖 {BOT_NAME}\n"
                 f"🔥 {res['symbol']}\n"
                 f"Тип: {', '.join(signals)}\n"
                 f"Close: {res['close']:.6f}\n"
