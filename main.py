@@ -266,7 +266,7 @@ def main():
             klines_btc = client.futures_klines(
                 symbol="BTCUSDT",
                 interval=Client.KLINE_INTERVAL_5MINUTE,
-                limit=108
+                limit=VOLUME_LOOKBACK
             )
             df_btc = pd.DataFrame(klines_btc, columns=[
                 "open_time","open","high","low","close",
@@ -299,7 +299,7 @@ def main():
                     klines_sym = client.futures_klines(
                         symbol=res["symbol"],
                         interval=Client.KLINE_INTERVAL_5MINUTE,
-                        limit=108
+                        limit=VOLUME_LOOKBACK
                     )
                     df_sym = pd.DataFrame(klines_sym, columns=[
                         "open_time","open","high","low","close",
