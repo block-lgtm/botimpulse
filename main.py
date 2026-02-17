@@ -6,6 +6,7 @@ import requests
 import os
 import json
 import argparse
+from binance import ThreadedWebsocketManager
 from dotenv import load_dotenv
 
 # ===== ЗАГРУЗКА КОНФИГА =====
@@ -232,115 +233,90 @@ def main():
     symbols = get_liquid_futures_symbols()
     print(f"🚀 Старт | Монет: {len(symbols)}")
 
-    while True:
-        print("\n🔍 Проверка сигналов...")
-
-        results = []
-
-        # ===== 1. Собираем все сигналы =====
-        for s in symbols:
-            try:
-                res = check_volume_signal(s)
-                if res:
-                    results.append(res)
-            except Exception as e:
-                print(f"{s}: {e}")
-
-        # ===== 2. Считаем COUNTER =====
-        counter_count = sum(
-            1 for r in results
-            if any(sig in ("BUY_COUNTER", "SELL_COUNTER") for sig in r["signals"])
+    # ===== Загрузка BTC для корреляции =====
+    try:
+        klines_btc = client.futures_klines(
+            symbol="BTCUSDT",
+            interval=Client.KLINE_INTERVAL_5MINUTE,
+            limit=108
         )
+        df_btc = pd.DataFrame(klines_btc, columns=[
+            "open_time","open","high","low","close",
+            "volume","close_time","quote_volume",
+            "trades","taker_buy_base","taker_buy_quote","ignore"
+        ])
+        df_btc["close"] = df_btc["close"].astype(float)
+        btc_returns = df_btc["close"].pct_change()
+    except Exception as e:
+        print(f"Ошибка загрузки BTC свечей: {e}")
+        btc_returns = None
 
-        skip_counters = counter_count >= 2
+    # ===== CALLBACK WebSocket =====
+    def handle_kline(msg):
+        candle = msg['k']
+        symbol = candle['s']
 
-        if skip_counters:
-            print(f"⛔ Найдено {counter_count} COUNTER → counter-сигналы пропущены")
-
-        found = 0
-
-        # ===== 3. Фильтрация + отправка с корреляцией к BTC =====
-        # ===== 3. Фильтрация + отправка с корреляцией к BTC =====
-        # Загружаем BTCUSDT один раз за цикл (9 часов = 108 свечей по 5 мин)
-        try:
-            klines_btc = client.futures_klines(
-                symbol="BTCUSDT",
-                interval=Client.KLINE_INTERVAL_5MINUTE,
-                limit=108
-            )
-            df_btc = pd.DataFrame(klines_btc, columns=[
-                "open_time","open","high","low","close",
-                "volume","close_time","quote_volume",
-                "trades","taker_buy_base","taker_buy_quote","ignore"
-            ])
-            df_btc["close"] = df_btc["close"].astype(float)
-            btc_returns = df_btc["close"].pct_change()
-        except Exception as e:
-            print(f"Ошибка загрузки BTC свечей: {e}")
-            btc_returns = None
-
-        for res in results:
-            signals = res["signals"]
-
-            # убираем ТОЛЬКО counter, если их >= 2
-            if skip_counters:
-                signals = [
-                    s for s in signals
-                    if s not in ("BUY_COUNTER", "SELL_COUNTER")
-                ]
-
-            if not signals:
-                continue  # нечего отправлять
-
-            # ===== КОРРЕЛЯЦИЯ С BTC =====
+        if candle['x']:  # свеча закрыта
             try:
-                if btc_returns is not None:
-                    # Берём последние 108 свечей для символа
-                    klines_sym = client.futures_klines(
-                        symbol=res["symbol"],
-                        interval=Client.KLINE_INTERVAL_5MINUTE,
-                        limit=108
-                    )
-                    df_sym = pd.DataFrame(klines_sym, columns=[
-                        "open_time","open","high","low","close",
-                        "volume","close_time","quote_volume",
-                        "trades","taker_buy_base","taker_buy_quote","ignore"
-                    ])
-                    df_sym["close"] = df_sym["close"].astype(float)
-                    symbol_returns = df_sym["close"].pct_change()
+                res = check_volume_signal(symbol)
+                if not res:
+                    return
 
-                    # Совпадающие длины
-                    btc_subset = btc_returns[-len(symbol_returns):]
+                # ===== КОРРЕЛЯЦИЯ С BTC =====
+                try:
+                    if btc_returns is not None:
+                        klines_sym = client.futures_klines(
+                            symbol=symbol,
+                            interval=Client.KLINE_INTERVAL_5MINUTE,
+                            limit=108
+                        )
+                        df_sym = pd.DataFrame(klines_sym, columns=[
+                            "open_time","open","high","low","close",
+                            "volume","close_time","quote_volume",
+                            "trades","taker_buy_base","taker_buy_quote","ignore"
+                        ])
+                        df_sym["close"] = df_sym["close"].astype(float)
+                        symbol_returns = df_sym["close"].pct_change()
 
-                    corr = btc_subset.corr(symbol_returns)
-                    corr_text = f"{corr:.2f}" if corr is not None else "N/A"
-                else:
+                        btc_subset = btc_returns[-len(symbol_returns):]
+                        corr = btc_subset.corr(symbol_returns)
+                        corr_text = f"{corr:.2f}" if corr is not None else "N/A"
+                    else:
+                        corr_text = "N/A"
+                except Exception as e:
+                    print(f"Ошибка при расчёте корреляции для {symbol}: {e}")
                     corr_text = "N/A"
+
+                # ===== Формируем сообщение =====
+                vol24 = res["volume_24h"] / 1_000_000
+                msg_text = (
+                    f"🤖 {BOT_NAME}\n"
+                    f"🔥 {res['symbol']}\n"
+                    f"Тип: {', '.join(res['signals'])}\n"
+                    f"Close: {res['close']:.6f}\n"
+                    f"EMA20: {res['ema20']:.6f}\n"
+                    f"EMA200: {res['ema200']:.6f}\n"
+                    f"VWAP: {res['vwap']:.6f}\n"
+                    f"VOL {res['volText']}\n"
+                    f"Prev volume higher: {res['prevVolCount']}/3\n"
+                    f"VOL 24h: {vol24:.1f}M USDT\n"
+                    f"Corr BTC: {corr_text}\n"
+                )
+                print(msg_text)
+                send_telegram(msg_text)
             except Exception as e:
-                print(f"Ошибка при расчёте корреляции для {res['symbol']}: {e}")
-                corr_text = "N/A"
+                print(f"{symbol}: {e}")
 
-            # ===== Формируем сообщение =====
-            vol24 = res["volume_24h"] / 1_000_000
-            msg = (
-                f"🤖 {BOT_NAME}\n"
-                f"🔥 {res['symbol']}\n"
-                f"Тип: {', '.join(signals)}\n"
-                f"Close: {res['close']:.6f}\n"
-                f"EMA20: {res['ema20']:.6f}\n"
-                f"EMA200: {res['ema200']:.6f}\n"
-                f"VWAP: {res['vwap']:.6f}\n"
-                f"VOL {res['volText']}\n"
-                f"Prev volume higher: {res['prevVolCount']}/3\n"
-                f"VOL 24h: {vol24:.1f}M USDT\n"
-                f"Corr BTC: {corr_text}\n"
-            )
+    # ===== ИНИЦИАЛИЗАЦИЯ WebSocket =====
+    from binance import ThreadedWebsocketManager
+    twm = ThreadedWebsocketManager()
+    twm.start()
 
-            print(msg)
-            send_telegram(msg)
+    streams = [f"{s.lower()}@kline_5m" for s in symbols]
+    twm.start_multiplex_socket(callback=handle_kline, streams=streams)
 
-        print(f"✅ Отправлено сигналов: {found}")
-        sleep_until_next_5m()
+    # ===== держим WebSocket живым =====
+    twm.join()
 
 if __name__ == "__main__":
     main()
