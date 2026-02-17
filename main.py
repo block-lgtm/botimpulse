@@ -253,7 +253,7 @@ def main():
 
     # ===== CALLBACK WebSocket =====
     def handle_kline(msg):
-        candle = msg['k']
+        candle = msg['data']['k']
         symbol = candle['s']
 
         if candle['x']:  # свеча закрыта
