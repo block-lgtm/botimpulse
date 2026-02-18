@@ -47,7 +47,7 @@ EMA200_PROXIMITY_MULT = float(config["EMA200_PROXIMITY_MULT"])
 COOLDOWN_BARS = config["COOLDOWN_BARS"]
 
 # FIX: магические числа вынесены в константы
-BTC_LOOKBACK = 108          # свечей для расчёта корреляции
+BTC_LOOKBACK = config["BTC_LOOKBACK"]          # свечей для расчёта корреляции
 EXCEL_STRAT_START_COL = 14  # колонка N в Excel
 PREV_VOL_WINDOW = 3         # окно для prevVolCount
 
@@ -135,7 +135,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         # заголовки
         headers = {
             "A":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем",
-            "F":"Trade_id","G":"Тип","H":"Импульс","K":"Корреляция",
+            "F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа","K":"Корреляция",
             "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"20:3"
         }
         if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
@@ -153,6 +153,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["G"+str(next_row)] = ", ".join(trade_info["signals"])
         ws["H"+str(next_row)] = vol_text
         ws["K"+str(next_row)] = corr_text
+        ws["J"+str(next_row)] = trade_info["entry_price"]
 
         for idx, s in enumerate(STRATEGIES.keys()):
             col = get_column_letter(EXCEL_STRAT_START_COL + idx)  # FIX: используем константу
@@ -446,7 +447,8 @@ def main():
                 {
                     "symbol": symbol,
                     "signals": res["signals"],
-                    "strategies": strategies
+                    "strategies": strategies,
+                    "entry_price": entry_price   
                 },
                 vol_text=res["volText"],
                 vol24=res["volume_24h"]/1_000_000,
