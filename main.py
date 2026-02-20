@@ -503,10 +503,12 @@ def main():
                 twm.start_multiplex_socket(callback=handle_kline, streams=streams)
 
             print("🟢 WebSocket запущен")
+            send_telegram(f"🟢 {BOT_NAME} WebSocket переподключился")
             twm.join()
 
         except Exception as e:
             print(f"🔴 WebSocket упал: {e}. Переподключение через 30 секунд...")
+            send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {e}. Переподключение через 30 секунд...")
             try:
                 twm.stop()
             except Exception:
