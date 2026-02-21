@@ -58,8 +58,8 @@ client = Client()
 BLACKLIST = {"BTCUSDT"}
 
 # ================= TRADES =================
-TRADE_STATE_FILE = "trades_state.json"
-EXCEL_FILE = "trades.xlsx"
+TRADE_STATE_FILE = f"trades_state_{BOT_NAME}.json"
+EXCEL_FILE = f"trades_{BOT_NAME}.xlsx"
 ACTIVE_TRADES = {}  # trade_id -> trade_info
 
 # FIX: блокировки для потокобезопасности
