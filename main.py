@@ -19,7 +19,7 @@ parser.add_argument("--config", required=True)
 args = parser.parse_args()
 
 with open(args.config, "r") as f:
-    config = json.load(f)  # FIX: переименовано с cfg -> config, чтобы не конфликтовало с циклом по STRATEGIES
+    config = json.load(f)
 
 BOT_NAME = config["NAME"]
 
@@ -46,40 +46,41 @@ EMA200_PROXIMITY_MULT = float(config["EMA200_PROXIMITY_MULT"])
 
 COOLDOWN_BARS = config["COOLDOWN_BARS"]
 
-# FIX: магические числа вынесены в константы
-BTC_LOOKBACK = config["BTC_LOOKBACK"]          # свечей для расчёта корреляции
+BTC_LOOKBACK = config["BTC_LOOKBACK"]
 EXCEL_STRAT_START_COL = 14  # колонка N в Excel
-PREV_VOL_WINDOW = 3         # окно для prevVolCount
+PREV_VOL_WINDOW = 3
 
 CHAT_ID = os.getenv("CHAT_ID")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 client = Client()
-BLACKLIST = {"BTCUSDT"}
+BLACKLIST = {
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT",
+    "XRPUSDT", "ADAUSDT", "DOGEUSDT", "LINKUSDT"
+}
 
 # ================= TRADES =================
 TRADE_STATE_FILE = f"trades_state_{BOT_NAME}.json"
 EXCEL_FILE = f"trades_{BOT_NAME}.xlsx"
-ACTIVE_TRADES = {}  # trade_id -> trade_info
 
 # FIX: блокировки для потокобезопасности
 TRADES_LOCK = Lock()
 EXCEL_LOCK = Lock()
 _ID_LOCK = Lock()
 
-# FIX: sheet_map вынесен как константа — больше не дублируется в двух функциях
 SHEET_MAP = {
     "CONFIG_1": "config1",
     "CONFIG_2": "config2",
     "CONFIG_3": "config3",
 }
 
+# FIX: 20:3 заменено на 4.5:1.5
 STRATEGIES = {
-    "3:1":  {"tp": 0.03, "sl": -0.01},
-    "6:1":  {"tp": 0.06, "sl": -0.01},
-    "6:2":  {"tp": 0.06, "sl": -0.02},
-    "10:3": {"tp": 0.10, "sl": -0.03},
-    "20:3": {"tp": 0.20, "sl": -0.03},
+    "3:1":    {"tp": 0.03,  "sl": -0.01},
+    "6:1":    {"tp": 0.06,  "sl": -0.01},
+    "6:2":    {"tp": 0.06,  "sl": -0.02},
+    "10:3":   {"tp": 0.10,  "sl": -0.03},
+    "4.5:1.5": {"tp": 0.045, "sl": -0.015},
 }
 
 def load_trade_id():
@@ -92,11 +93,27 @@ def save_trade_id(tid):
     with open(TRADE_STATE_FILE, "w") as f:
         json.dump({"last_trade_id": tid}, f)
 
+# ================= ACTIVE TRADES PERSISTENCE =================
+ACTIVE_TRADES_FILE = f"active_trades_{BOT_NAME}.json"
+
+def save_active_trades():
+    with TRADES_LOCK:
+        with open(ACTIVE_TRADES_FILE, "w") as f:
+            json.dump(ACTIVE_TRADES, f)
+
+def load_active_trades():
+    if not os.path.exists(ACTIVE_TRADES_FILE):
+        return {}
+    with open(ACTIVE_TRADES_FILE, "r") as f:
+        return json.load(f)
+
+# FIX: ACTIVE_TRADES загружается после определения функций
+ACTIVE_TRADES = load_active_trades()
+
 LAST_TRADE_ID = load_trade_id()
 
 def get_next_trade_id():
     global LAST_TRADE_ID
-    # FIX: потокобезопасный инкремент ID
     with _ID_LOCK:
         LAST_TRADE_ID += 1
         save_trade_id(LAST_TRADE_ID)
@@ -113,11 +130,9 @@ def send_telegram(message: str):
 
 # ================= EXCEL =================
 def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
-    sheet_name = SHEET_MAP.get(BOT_NAME, "config1")  # FIX: используем глобальную константу
+    sheet_name = SHEET_MAP.get(BOT_NAME, "config1")
 
-    # FIX: потокобезопасная запись в Excel
     with EXCEL_LOCK:
-        # создаем файл и листы если не существует
         if not os.path.exists(EXCEL_FILE):
             wb = openpyxl.Workbook()
             for sn in SHEET_MAP.values():
@@ -132,11 +147,12 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             wb.create_sheet(sheet_name)
         ws = wb[sheet_name]
 
-        # заголовки
+        # FIX: заголовок R обновлён на 4.5:1.5
         headers = {
             "A":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем",
-            "F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа","K":"Корреляция",
-            "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"20:3"
+            "F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа",
+            "K":"Корреляция","M":"NATR%",
+            "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"4.5:1.5"
         }
         if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
             for col, header in headers.items():
@@ -152,26 +168,27 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["F"+str(next_row)] = trade_id
         ws["G"+str(next_row)] = ", ".join(trade_info["signals"])
         ws["H"+str(next_row)] = vol_text
-        ws["K"+str(next_row)] = corr_text
         ws["J"+str(next_row)] = trade_info["entry_price"]
+        ws["K"+str(next_row)] = corr_text
+        ws["M"+str(next_row)] = trade_info["natr"]
 
         for idx, s in enumerate(STRATEGIES.keys()):
-            col = get_column_letter(EXCEL_STRAT_START_COL + idx)  # FIX: используем константу
+            col = get_column_letter(EXCEL_STRAT_START_COL + idx)
             ws[f"{col}{next_row}"] = trade_info["strategies"][s]["status"]
 
         wb.save(EXCEL_FILE)
 
 def update_trade_status_in_excel(trade_id, strategy_name, status):
-    sheet_name = SHEET_MAP.get(BOT_NAME, "config1")  # FIX: используем глобальную константу
+    sheet_name = SHEET_MAP.get(BOT_NAME, "config1")
 
-    # FIX: потокобезопасное обновление Excel
     with EXCEL_LOCK:
         wb = openpyxl.load_workbook(EXCEL_FILE)
         ws = wb[sheet_name]
 
         for row in range(2, ws.max_row+1):
             if str(ws[f"F{row}"].value) == trade_id:
-                col_map = {"3:1":"N","6:1":"O","6:2":"P","10:3":"Q","20:3":"R"}
+                # FIX: col_map обновлён на 4.5:1.5
+                col_map = {"3:1":"N","6:1":"O","6:2":"P","10:3":"Q","4.5:1.5":"R"}
                 col = col_map[strategy_name]
                 ws[f"{col}{row}"] = status
                 break
@@ -212,7 +229,6 @@ def get_liquid_futures_symbols():
         symbols.append(symbol)
     return symbols
 
-# FIX: вынесена загрузка BTC-свечей в отдельную функцию для переиспользования
 def get_btc_returns():
     try:
         klines_btc = client.futures_klines(
@@ -242,6 +258,7 @@ def check_volume_signal(symbol):
     df["ema20"] = df["close"].ewm(span=EMA_FAST, adjust=False).mean()
     df["ema200"] = df["close"].ewm(span=EMA_SLOW, adjust=False).mean()
     df["atr"] = calculate_atr(df, ATR_LEN)
+    df["natr"] = (df["atr"] / df["close"]) * 100
     df["vwap"] = calculate_session_vwap(df)
     df["quote_volume"] = df["close"]*df["volume"]
     avg_vol = df["quote_volume"].iloc[-(VOLUME_LOOKBACK+2):-2].mean()
@@ -303,6 +320,7 @@ def check_volume_signal(symbol):
         "ema20": last["ema20"],
         "ema200": last["ema200"],
         "vwap": last["vwap"],
+        "natr": round(last["natr"], 3),
         "volText": f"x{last['quote_volume']/avg_vol:.2f}",
         "prevVolCount": int((df.iloc[-5:-2]["quote_volume"] > last["quote_volume"]).sum()),
         "volume_24h": volume_24h
@@ -313,9 +331,8 @@ def main():
     symbols = get_liquid_futures_symbols()
     print(f"✅ Ликвидные токены: {len(symbols)}")
 
-    # FIX: cooldown — словарь последнего времени сигнала по символу
-    last_signal_time = {}  # symbol -> timestamp
-    cooldown_seconds = COOLDOWN_BARS * 5 * 60  # COOLDOWN_BARS * длина свечи в секундах
+    last_signal_time = {}
+    cooldown_seconds = COOLDOWN_BARS * 5 * 60
 
     def update_symbols_periodically():
         nonlocal symbols
@@ -329,11 +346,15 @@ def main():
 
     Thread(target=update_symbols_periodically, daemon=True).start()
 
-    # FIX: очередь задач — WebSocket не блокируется синхронными API-вызовами
     task_queue = Queue()
 
     def process_signal(msg):
         try:
+            if msg.get("e") == "error":
+                print(f"🔴 WebSocket ошибка: {msg}")
+                send_telegram(f"🔴 {BOT_NAME} WebSocket ошибка: {msg.get('m', 'неизвестно')}")
+                return
+
             if 'data' not in msg or 'k' not in msg['data']:
                 return
             candle = msg['data']['k']
@@ -346,7 +367,6 @@ def main():
 
             # ===== Закрытие открытых стратегий =====
             closed_trades = []
-            # FIX: потокобезопасный доступ к ACTIVE_TRADES
             with TRADES_LOCK:
                 for trade_id, trade in list(ACTIVE_TRADES.items()):
                     if trade["symbol"] != symbol:
@@ -371,7 +391,6 @@ def main():
 
                         strat["status"] = result
                         msg_text = f"📊 TRADE CLOSED\nID:{trade_id}\n{trade['symbol']} {trade['side']}\nStrategy:{strat_name}\nEntry:{trade['entry_price']:.6f}\n{result}"
-                        # Excel и Telegram — вне блокировки, вызываем после
                         Thread(target=update_trade_status_in_excel, args=(trade_id, strat_name, result), daemon=True).start()
                         Thread(target=send_telegram, args=(msg_text,), daemon=True).start()
                         print(msg_text)
@@ -382,7 +401,11 @@ def main():
                 for tid in closed_trades:
                     del ACTIVE_TRADES[tid]
 
-            # FIX: cooldown — пропускаем символ, если сигнал был недавно
+            # FIX: сохраняем после удаления закрытых трейдов
+            if closed_trades:
+                save_active_trades()
+
+            # Cooldown
             now = time.time()
             if now - last_signal_time.get(symbol, 0) < cooldown_seconds:
                 return
@@ -392,14 +415,12 @@ def main():
             if not res:
                 return
 
-            # FIX: обновляем время последнего сигнала
             last_signal_time[symbol] = now
 
             entry_price = res["close"]
             side = "BUY" if any("BUY" in s for s in res["signals"]) else "SELL"
 
             # ===== Корреляция BTC =====
-            # FIX: btc_returns загружается свежим на каждый сигнал
             try:
                 btc_returns = get_btc_returns()
                 if btc_returns is not None:
@@ -416,13 +437,11 @@ def main():
                 else:
                     corr_text = "N/A"
             except Exception as e:
-                # FIX: логируем ошибку вместо голого except
                 print(f"Ошибка корреляции {symbol}: {e}")
                 corr_text = "N/A"
 
             trade_id = get_next_trade_id()
             strategies = {}
-            # FIX: переменная цикла переименована strat_cfg, чтобы не затирать глобальный config
             for name, strat_cfg in STRATEGIES.items():
                 if side == "BUY":
                     tp = entry_price * (1 + strat_cfg["tp"])
@@ -432,7 +451,7 @@ def main():
                     sl = entry_price * (1 + abs(strat_cfg["sl"]))
                 strategies[name] = {"tp": tp, "sl": sl, "status": "OPEN"}
 
-            # FIX: потокобезопасное добавление нового трейда
+            # FIX: потокобезопасное добавление + сохранение
             with TRADES_LOCK:
                 ACTIVE_TRADES[trade_id] = {
                     "symbol": symbol,
@@ -441,6 +460,7 @@ def main():
                     "strategies": strategies,
                     "open_time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 }
+            save_active_trades()
 
             write_trade_to_excel(
                 trade_id,
@@ -448,7 +468,8 @@ def main():
                     "symbol": symbol,
                     "signals": res["signals"],
                     "strategies": strategies,
-                    "entry_price": entry_price   
+                    "entry_price": entry_price,
+                    "natr": res["natr"]
                 },
                 vol_text=res["volText"],
                 vol24=res["volume_24h"]/1_000_000,
@@ -469,6 +490,7 @@ def main():
                 f"Prev volume higher: {res['prevVolCount']}/3\n"
                 f"VOL 24h: {vol24:.1f}M USDT\n"
                 f"Corr BTC: {corr_text}\n"
+                f"NATR: {res['natr']}%\n"
             )
             print(msg_text)
             send_telegram(msg_text)
@@ -477,10 +499,8 @@ def main():
             print(f"Ошибка process_signal: {e}")
 
     def handle_kline(msg):
-        # FIX: WebSocket-обработчик только кладёт задачу в очередь, не блокируется
         task_queue.put(msg)
 
-    # FIX: воркер обрабатывает задачи из очереди в отдельном потоке
     def worker():
         while True:
             msg = task_queue.get()
@@ -489,10 +509,9 @@ def main():
 
     Thread(target=worker, daemon=True).start()
 
-    # ===== WebSocket с переподключением =====
+    # ===== WebSocket с переподключением и плановым перезапуском =====
     chunk_size = 30
 
-    # FIX: цикл переподключения при падении WebSocket
     while True:
         try:
             twm = ThreadedWebsocketManager()
@@ -503,12 +522,19 @@ def main():
                 twm.start_multiplex_socket(callback=handle_kline, streams=streams)
 
             print("🟢 WebSocket запущен")
-            send_telegram(f"🟢 {BOT_NAME} WebSocket переподключился")
-            twm.join()
+            send_telegram(f"🟢 {BOT_NAME} WebSocket запущен")
+
+            # Плановый перезапуск каждые 24 часа
+            time.sleep(24 * 60 * 60)
+            print("♻️ Плановый перезапуск WebSocket...")
+            send_telegram(f"♻️ {BOT_NAME} плановый перезапуск WebSocket")
+            save_active_trades()
+            twm.stop()
 
         except Exception as e:
             print(f"🔴 WebSocket упал: {e}. Переподключение через 30 секунд...")
             send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {e}. Переподключение через 30 секунд...")
+            save_active_trades()
             try:
                 twm.stop()
             except Exception:
