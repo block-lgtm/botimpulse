@@ -147,12 +147,13 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             wb.create_sheet(sheet_name)
         ws = wb[sheet_name]
 
-        # FIX: заголовок R обновлён на 4.5:1.5
         headers = {
             "A":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем",
             "F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа",
             "K":"Корреляция","M":"NATR%",
-            "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"4.5:1.5"
+            "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"4.5:1.5",
+            "S":"3:1 цена/PnL","T":"6:1 цена/PnL","U":"6:2 цена/PnL",
+            "V":"10:3 цена/PnL","W":"4.5:1.5 цена/PnL"
         }
         if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
             for col, header in headers.items():
@@ -178,7 +179,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
 
         wb.save(EXCEL_FILE)
 
-def update_trade_status_in_excel(trade_id, strategy_name, status):
+def update_trade_status_in_excel(trade_id, strategy_name, status, close_price, pnl):
     sheet_name = SHEET_MAP.get(BOT_NAME, "config1")
 
     with EXCEL_LOCK:
@@ -187,10 +188,14 @@ def update_trade_status_in_excel(trade_id, strategy_name, status):
 
         for row in range(2, ws.max_row+1):
             if str(ws[f"F{row}"].value) == trade_id:
-                # FIX: col_map обновлён на 4.5:1.5
-                col_map = {"3:1":"N","6:1":"O","6:2":"P","10:3":"Q","4.5:1.5":"R"}
-                col = col_map[strategy_name]
-                ws[f"{col}{row}"] = status
+                # статус в N-R
+                col_map_status  = {"3:1":"N","6:1":"O","6:2":"P","10:3":"Q","4.5:1.5":"R"}
+                # цена/PnL в S-W
+                col_map_details = {"3:1":"S","6:1":"T","6:2":"U","10:3":"V","4.5:1.5":"W"}
+                col_s = col_map_status[strategy_name]
+                col_d = col_map_details[strategy_name]
+                ws[f"{col_s}{row}"] = status
+                ws[f"{col_d}{row}"] = f"{close_price:.6f} / {pnl:+.2f}%"
                 break
 
         wb.save(EXCEL_FILE)
@@ -390,8 +395,14 @@ def main():
                                 continue
 
                         strat["status"] = result
-                        msg_text = f"📊 TRADE CLOSED\nID:{trade_id}\n{trade['symbol']} {trade['side']}\nStrategy:{strat_name}\nEntry:{trade['entry_price']:.6f}\n{result}"
-                        Thread(target=update_trade_status_in_excel, args=(trade_id, strat_name, result), daemon=True).start()
+                        # Цена закрытия и PnL
+                        close_price = strat["sl"] if result == "SL" else strat["tp"]
+                        pnl = (close_price - trade["entry_price"]) / trade["entry_price"] * 100
+                        if trade["side"] == "SELL":
+                            pnl = -pnl
+                        pnl = round(pnl, 2)
+                        msg_text = f"📊 TRADE CLOSED\nID:{trade_id}\n{trade['symbol']} {trade['side']}\nStrategy:{strat_name}\nEntry:{trade['entry_price']:.6f}\nClose:{close_price:.6f}\nPnL:{pnl:+.2f}%\n{result}"
+                        Thread(target=update_trade_status_in_excel, args=(trade_id, strat_name, result, close_price, pnl), daemon=True).start()
                         Thread(target=send_telegram, args=(msg_text,), daemon=True).start()
                         print(msg_text)
 
@@ -433,7 +444,7 @@ def main():
                     symbol_returns = df_sym["close"].pct_change()
                     btc_subset = btc_returns[-len(symbol_returns):]
                     corr = btc_subset.corr(symbol_returns)
-                    corr_text = f"{corr:.2f}" if corr is not None else "N/A"
+                    corr_text = round(float(corr), 2) if corr is not None else "N/A"
                 else:
                     corr_text = "N/A"
             except Exception as e:
