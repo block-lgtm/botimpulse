@@ -45,6 +45,7 @@ EMA20_PROXIMITY_MULT = float(config["EMA20_PROXIMITY_MULT"])
 EMA200_PROXIMITY_MULT = float(config["EMA200_PROXIMITY_MULT"])
 
 COOLDOWN_BARS = config["COOLDOWN_BARS"]
+USE_HTF_FILTER = config.get("USE_HTF_FILTER", False)  # фильтр старшего ТФ, по умолчанию выключен
 
 BTC_LOOKBACK = config["BTC_LOOKBACK"]
 EXCEL_STRAT_START_COL = 14  # колонка N в Excel
@@ -72,6 +73,9 @@ SHEET_MAP = {
     "CONFIG_1": "config1",
     "CONFIG_2": "config2",
     "CONFIG_3": "config3",
+    "CONFIG_4": "config4",
+    "CONFIG_5": "config5",
+    "CONFIG_6": "config6",
 }
 
 # FIX: 20:3 заменено на 4.5:1.5
@@ -300,14 +304,34 @@ def check_volume_signal(symbol):
     ema20_far_ema200 = abs(last["ema20"] - last["ema200"]) >= atr*EMA20_PROXIMITY_MULT
     ema20_clear_zone = ema20_far_vwap and ema20_far_ema200 and ema200_far_vwap
 
+    # ================= HTF ФИЛЬТР (1ч) =================
+    htf_bull = True
+    htf_bear = True
+    if USE_HTF_FILTER:
+        try:
+            klines_1h = client.futures_klines(symbol=symbol,
+                interval=Client.KLINE_INTERVAL_1HOUR, limit=210)
+            df_1h = pd.DataFrame(klines_1h, columns=[
+                "open_time","open","high","low","close","volume",
+                "close_time","quote_volume","trades","taker_buy_base","taker_buy_quote","ignore"
+            ])
+            df_1h["close"] = df_1h["close"].astype(float)
+            ema20_1h  = df_1h["close"].ewm(span=EMA_FAST, adjust=False).mean().iloc[-2]
+            ema200_1h = df_1h["close"].ewm(span=EMA_SLOW, adjust=False).mean().iloc[-2]
+            # Инвертированная логика — против тренда на 1ч
+            htf_bull = ema20_1h < ema200_1h  # для BUY — на 1ч медвежий тренд
+            htf_bear = ema20_1h > ema200_1h  # для SELL — на 1ч бычий тренд
+        except Exception as e:
+            print(f"Ошибка HTF фильтра {symbol}: {e}")
+
     signals = []
-    if spike_trend and bull and strong_body_trend and below_ema20 and below_vwap and bull_trend and emas_far_enough and buy_low_condition:
+    if spike_trend and bull and strong_body_trend and below_ema20 and below_vwap and bull_trend and emas_far_enough and buy_low_condition and htf_bull:
         signals.append("BUY_TREND")
-    if spike_trend and bear and strong_body_trend and above_ema20 and above_vwap and bear_trend and emas_far_enough and sell_high_condition:
+    if spike_trend and bear and strong_body_trend and above_ema20 and above_vwap and bear_trend and emas_far_enough and sell_high_condition and htf_bear:
         signals.append("SELL_TREND")
-    if spike_counter and bull and strong_body_counter and below_ema20 and below_vwap and bear_trend and emas_far_enough and ema20_clear_zone:
+    if spike_counter and bull and strong_body_counter and below_ema20 and below_vwap and bear_trend and emas_far_enough and ema20_clear_zone and htf_bull:
         signals.append("BUY_COUNTER")
-    if spike_counter and bear and strong_body_counter and above_ema20 and above_vwap and bull_trend and emas_far_enough and ema20_clear_zone:
+    if spike_counter and bear and strong_body_counter and above_ema20 and above_vwap and bull_trend and emas_far_enough and ema20_clear_zone and htf_bear:
         signals.append("SELL_COUNTER")
 
     if not signals:
@@ -444,7 +468,7 @@ def main():
                     symbol_returns = df_sym["close"].pct_change()
                     btc_subset = btc_returns[-len(symbol_returns):]
                     corr = btc_subset.corr(symbol_returns)
-                    corr_text = round(float(corr), 2) if corr is not None else "N/A"
+                    corr_text = f"{corr:.2f}" if corr is not None else "N/A"
                 else:
                     corr_text = "N/A"
             except Exception as e:
