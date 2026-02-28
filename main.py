@@ -425,10 +425,9 @@ def main():
                         if trade["side"] == "SELL":
                             pnl = -pnl
                         pnl = round(pnl, 2)
-                        msg_text = f"📊 TRADE CLOSED\nID:{trade_id}\n{trade['symbol']} {trade['side']}\nStrategy:{strat_name}\nEntry:{trade['entry_price']:.6f}\nClose:{close_price:.6f}\nPnL:{pnl:+.2f}%\n{result}"
+                        # send_telegram по тейкам и стопам отключён для закрытий
                         Thread(target=update_trade_status_in_excel, args=(trade_id, strat_name, result, close_price, pnl), daemon=True).start()
-                        Thread(target=send_telegram, args=(msg_text,), daemon=True).start()
-                        print(msg_text)
+                        # send_telegram по тейкам и стопам отключён для закрытий
 
                     if all(s["status"] != "OPEN" for s in trade["strategies"].values()):
                         closed_trades.append(trade_id)
