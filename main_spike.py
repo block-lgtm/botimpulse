@@ -44,6 +44,12 @@ ATR_LEN          = config["ATR_LEN"]
 USE_EMA_FILTER  = config.get("USE_EMA_FILTER", True)
 USE_VWAP_FILTER = config.get("USE_VWAP_FILTER", True)
 
+# Свинг фильтры (0 = выключен)
+SWING_BUY_TREND    = config.get("SWING_BUY_TREND", 0)
+SWING_SELL_TREND   = config.get("SWING_SELL_TREND", 0)
+SWING_BUY_COUNTER  = config.get("SWING_BUY_COUNTER", 0)
+SWING_SELL_COUNTER = config.get("SWING_SELL_COUNTER", 0)
+
 EXCEL_STRAT_START_COL = 14  # колонка N
 PREV_VOL_WINDOW  = 3
 
@@ -147,6 +153,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"12:4",
             "S":"3:1 цена","T":"6:1 цена","U":"6:2 цена",
             "V":"10:3 цена","W":"12:4 цена",
+            "X":"Свинг"
         }
         if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
             for col, header in headers.items():
@@ -165,6 +172,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["J"+str(next_row)] = trade_info["entry_price"]
         ws["K"+str(next_row)] = corr_text
         ws["M"+str(next_row)] = trade_info["natr"]
+        ws["X"+str(next_row)] = trade_info["swing_num"]
 
         for idx, s in enumerate(STRATEGIES.keys()):
             col = get_column_letter(EXCEL_STRAT_START_COL + idx)
@@ -235,6 +243,45 @@ def get_btc_returns():
         print(f"Ошибка загрузки BTC свечей: {e}")
         return None
 
+def check_swing(df, side, n):
+    """
+    Фильтр: возвращает True если сигнал НЕ должен быть срезан.
+    BUY: ни одна из n предыдущих свечей не имеет low ниже текущей
+    SELL: ни одна из n предыдущих свечей не имеет high выше текущей
+    """
+    if n == 0:
+        return True
+    current = df.iloc[-2]
+    for i in range(1, n + 1):
+        idx = -2 - i
+        if abs(idx) > len(df):
+            break
+        candle = df.iloc[idx]
+        if side == "BUY" and candle["low"] < current["low"]:
+            return False
+        if side == "SELL" and candle["high"] > current["high"]:
+            return False
+    return True
+
+def get_swing_num(df, side, n=5):
+    """
+    Информационно: ищем наидальнейшую свечу среди n предыдущих,
+    у которой low ниже (BUY) или high выше (SELL) текущей.
+    Возвращает номер (1=предыдущая ... n) или 0.
+    """
+    current = df.iloc[-2]
+    result = 0
+    for i in range(1, n + 1):
+        idx = -2 - i
+        if abs(idx) > len(df):
+            break
+        candle = df.iloc[idx]
+        if side == "BUY" and candle["low"] < current["low"]:
+            result = i
+        if side == "SELL" and candle["high"] > current["high"]:
+            result = i
+    return result
+
 def check_volume_signal(symbol):
     klines = client.futures_klines(
         symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=LOOKBACK_CANDLES
@@ -284,14 +331,22 @@ def check_volume_signal(symbol):
     else:
         recent_spike = False
 
+    # Свинг фильтры
+    swing_buy_trend_ok    = check_swing(df, "BUY",  SWING_BUY_TREND)
+    swing_sell_trend_ok   = check_swing(df, "SELL", SWING_SELL_TREND)
+
     signals = []
-    if volume_spike and bull and strong_body and ema_bull_ok and below_vwap and not recent_spike:
-        signals.append("BUY")
-    if volume_spike and bear and strong_body and ema_bear_ok and above_vwap and not recent_spike:
-        signals.append("SELL")
+    if volume_spike and bull and strong_body and ema_bull_ok and below_vwap and not recent_spike and swing_buy_trend_ok:
+        signals.append("BUY_TREND")
+    if volume_spike and bear and strong_body and ema_bear_ok and above_vwap and not recent_spike and swing_sell_trend_ok:
+        signals.append("SELL_TREND")
 
     if not signals:
         return None
+
+    # Колонка X — наидальнейшая свеча среди 5 предыдущих
+    side_for_swing = "BUY" if any("BUY" in s for s in signals) else "SELL"
+    swing_num = get_swing_num(df, side_for_swing, 5)
 
     ticker_24h = client.futures_ticker(symbol=symbol)
     volume_24h = float(ticker_24h["quoteVolume"])
@@ -307,6 +362,7 @@ def check_volume_signal(symbol):
         "volText":   f"x{last['quote_volume']/avg_vol:.2f}",
         "prevVolCount": int((df.iloc[-5:-2]["quote_volume"] > last["quote_volume"]).sum()),
         "volume_24h": volume_24h,
+        "swing_num": swing_num,
     }
 
 # ================= MAIN =================
@@ -452,6 +508,7 @@ def main():
                     "strategies":  strategies,
                     "entry_price": entry_price,
                     "natr":        res["natr"],
+                    "swing_num":   res["swing_num"],
                 },
                 vol_text=res["volText"],
                 vol24=res["volume_24h"] / 1_000_000,
@@ -473,6 +530,7 @@ def main():
                 f"VOL 24h: {vol24:.1f}M USDT\n"
                 f"Corr BTC: {corr_text}\n"
                 f"NATR: {res['natr']}%\n"
+                f"Свинг: {res['swing_num']}\n"
             )
             print(msg_text)
             send_telegram(msg_text)

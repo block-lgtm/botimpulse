@@ -52,6 +52,7 @@ SWING_BUY_TREND     = config.get("SWING_BUY_TREND", 0)
 SWING_SELL_TREND    = config.get("SWING_SELL_TREND", 0)
 SWING_BUY_COUNTER   = config.get("SWING_BUY_COUNTER", 0)
 SWING_SELL_COUNTER  = config.get("SWING_SELL_COUNTER", 0)
+USE_VWAP_FILTER = config.get("USE_VWAP_FILTER", True)
 
 EXCEL_STRAT_START_COL = 14  # колонка N
 PREV_VOL_WINDOW     = 3
@@ -303,8 +304,8 @@ def check_volume_signal(symbol):
     below_ema20 = last["open"] < last["ema20"] and last["close"] < last["ema20"]
     above_ema20 = last["open"] > last["ema20"] and last["close"] > last["ema20"]
 
-    below_vwap = last["open"] < last["vwap"] and last["close"] < last["vwap"]
-    above_vwap = last["open"] > last["vwap"] and last["close"] > last["vwap"]
+    below_vwap = (last["open"] < last["vwap"] and last["close"] < last["vwap"]) if USE_VWAP_FILTER else True
+    above_vwap = (last["open"] > last["vwap"] and last["close"] > last["vwap"]) if USE_VWAP_FILTER else True
 
     buy_low_condition   = last["low"] < last["ema20"] and last["low"] < last["ema200"]
     sell_high_condition = last["high"] > last["ema20"] and last["high"] > last["ema200"]
@@ -314,8 +315,8 @@ def check_volume_signal(symbol):
 
     atr = last["atr"]
     emas_far_enough  = abs(last["ema20"] - last["ema200"]) >= atr * ATR_GAP_MULT
-    ema20_far_vwap   = abs(last["ema20"] - last["vwap"])   >= atr * EMA20_PROXIMITY_MULT
-    ema200_far_vwap  = abs(last["ema200"] - last["vwap"])  >= atr * EMA200_PROXIMITY_MULT
+    ema20_far_vwap   = (abs(last["ema20"] - last["vwap"]) >= atr * EMA20_PROXIMITY_MULT) if USE_VWAP_FILTER else True
+    ema200_far_vwap  = (abs(last["ema200"] - last["vwap"]) >= atr * EMA200_PROXIMITY_MULT) if USE_VWAP_FILTER else True
     ema20_far_ema200 = abs(last["ema20"] - last["ema200"]) >= atr * EMA20_PROXIMITY_MULT
     ema20_clear_zone = ema20_far_vwap and ema20_far_ema200 and ema200_far_vwap
 
