@@ -76,9 +76,24 @@ EXCEL_LOCK  = Lock()
 _ID_LOCK    = Lock()
 
 SHEET_MAP = {
-    "CONFIMP1": "confimp1",
-    "CONFIMP2": "confimp2",
-    "CONFIMP3": "confimp3",
+    "CONFIMP1":  "confimp1",
+    "CONFIMP2":  "confimp2",
+    "CONFIMP3":  "confimp3",
+    "CONFIMP4":  "confimp4",
+    "CONFIMP5":  "confimp5",
+    "CONFIMP6":  "confimp6",
+    "CONFIMP7":  "confimp7",
+    "CONFIMP8":  "confimp8",
+    "CONFIMP9":  "confimp9",
+    "CONFIMP10": "confimp10",
+    "CONFIMP11": "confimp11",
+    "CONFIMP12": "confimp12",
+    "CONFIMP13": "confimp13",
+    "CONFIMP14": "confimp14",
+    "CONFIMP15": "confimp15",
+    "CONFIMP16": "confimp16",
+    "CONFIMP17": "confimp17",
+    "CONFIMP18": "confimp18",
 }
 
 STRATEGIES = {
