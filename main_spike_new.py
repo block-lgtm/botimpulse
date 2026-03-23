@@ -170,6 +170,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
                     wb.create_sheet(sn)
             if "Sheet" in wb.sheetnames:
                 wb.remove(wb["Sheet"])
+            wb.active = wb[sheet_name]
             wb.save(EXCEL_FILE)
 
         wb = openpyxl.load_workbook(EXCEL_FILE)
@@ -192,7 +193,8 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
 
         next_row = ws.max_row + 1
         dt = datetime.now()
-        ws["A"+str(next_row)] = dt.strftime("%d.%m.%Y")
+        ws["I"+str(next_row)] = dt.date()
+        ws["I"+str(next_row)].number_format = "DD.MM.YYYY"
         ws["B"+str(next_row)] = dt.strftime("%H:%M:%S")
         ws["C"+str(next_row)] = dt.strftime("%a")
         ws["D"+str(next_row)] = trade_info["symbol"]
@@ -201,7 +203,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["G"+str(next_row)] = ", ".join(trade_info["signals"])
         ws["H"+str(next_row)] = vol_text
         ws["J"+str(next_row)] = trade_info["entry_price"]
-        ws["K"+str(next_row)] = corr_text
+        ws["L"+str(next_row)] = corr_text
         ws["M"+str(next_row)] = trade_info["natr"]
         ws["X"+str(next_row)] = trade_info["swing_num"]
         ws["Y"+str(next_row)] = trade_info["delta_pct"]
@@ -211,6 +213,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             col = get_column_letter(EXCEL_STRAT_START_COL + idx)
             ws[f"{col}{next_row}"] = trade_info["strategies"][s]["status"]
 
+        wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
 def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
@@ -230,6 +233,7 @@ def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
                 ws[f"{col_d}{row}"] = round(close_price, 6)
                 break
 
+        wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
 # ================= INDICATORS =================

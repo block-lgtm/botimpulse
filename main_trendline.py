@@ -1,8 +1,9 @@
 from binance.client import Client
 from binance import ThreadedWebsocketManager
 import pandas as pd
+import numpy as np
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 import requests
 import os
 import json
@@ -26,36 +27,43 @@ BOT_NAME = config["NAME"]
 load_dotenv()
 
 # ================= НАСТРОЙКИ =================
-MIN_24H_VOLUME      = config["MIN_24H_VOLUME"]
-LOOKBACK_CANDLES    = config["LOOKBACK_CANDLES"]
-VOLUME_LOOKBACK     = config["VOLUME_LOOKBACK"]
+MIN_24H_VOLUME   = config["MIN_24H_VOLUME"]
+LOOKBACK_CANDLES = config["LOOKBACK_CANDLES"]
+BTC_LOOKBACK     = config["BTC_LOOKBACK"]
+ATR_LEN          = config["ATR_LEN"]
 
-VOL_MULT_TREND      = float(config["VOL_MULT_TREND"])
-VOL_MULT_COUNTER    = float(config["VOL_MULT_COUNTER"])
+EMA_FAST         = config["EMA_FAST"]
+EMA_SLOW         = config["EMA_SLOW"]
 
-EMA_FAST            = config["EMA_FAST"]
-EMA_SLOW            = config["EMA_SLOW"]
+# Swing Detection Lookback
+SWING_LENGTH     = config["SWING_LENGTH"]  # 24, 50, 100
 
-MIN_BODY_TREND      = float(config["MIN_BODY_TREND"])
-MIN_BODY_COUNTER    = float(config["MIN_BODY_COUNTER"])
+# Slope метод — только один true
+USE_ATR_SLOPE    = config.get("USE_ATR_SLOPE", True)
+USE_STDEV_SLOPE  = config.get("USE_STDEV_SLOPE", False)
+USE_LINREG_SLOPE = config.get("USE_LINREG_SLOPE", False)
+SLOPE_MULT       = float(config.get("SLOPE_MULT", 1.0))
 
-ATR_LEN             = config["ATR_LEN"]
-ATR_GAP_MULT        = float(config["ATR_GAP_MULT"])
-EMA20_PROXIMITY_MULT  = float(config["EMA20_PROXIMITY_MULT"])
-EMA200_PROXIMITY_MULT = float(config["EMA200_PROXIMITY_MULT"])
+# EMA фильтр
+USE_EMA_FILTER   = config.get("USE_EMA_FILTER", True)
 
-COOLDOWN_BARS       = config["COOLDOWN_BARS"]
-BTC_LOOKBACK        = config["BTC_LOOKBACK"]
+# RelVol фильтр
+USE_RELVOL_FILTER = config.get("USE_RELVOL_FILTER", False)
+RELVOL_ANCHOR     = config.get("RELVOL_ANCHOR", "1d")
+RELVOL_LENGTH     = config.get("RELVOL_LENGTH", 5)
+RELVOL_MIN_BUY    = float(config.get("RELVOL_MIN_BUY",  0.0))
+RELVOL_MAX_BUY    = float(config.get("RELVOL_MAX_BUY",  0.0))
+RELVOL_MIN_SELL   = float(config.get("RELVOL_MIN_SELL", 0.0))
+RELVOL_MAX_SELL   = float(config.get("RELVOL_MAX_SELL", 0.0))
 
-# Свинг фильтры (0 = выключен)
-SWING_BUY_TREND     = config.get("SWING_BUY_TREND", 0)
-SWING_SELL_TREND    = config.get("SWING_SELL_TREND", 0)
-SWING_BUY_COUNTER   = config.get("SWING_BUY_COUNTER", 0)
-SWING_SELL_COUNTER  = config.get("SWING_SELL_COUNTER", 0)
-USE_VWAP_FILTER     = config.get("USE_VWAP_FILTER", True)
+ANCHOR_MAP = {
+    "1h": Client.KLINE_INTERVAL_1HOUR,
+    "4h": Client.KLINE_INTERVAL_4HOUR,
+    "1d": Client.KLINE_INTERVAL_1DAY,
+    "1w": Client.KLINE_INTERVAL_1WEEK,
+}
 
 EXCEL_STRAT_START_COL = 14  # колонка N
-PREV_VOL_WINDOW     = 3
 
 CHAT_ID   = os.getenv("CHAT_ID")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -67,8 +75,8 @@ BLACKLIST = {
 }
 
 # ================= TRADES =================
-TRADE_STATE_FILE  = f"trades_state_{BOT_NAME}.json"
-EXCEL_FILE        = f"trades_{BOT_NAME}.xlsx"
+TRADE_STATE_FILE   = f"trades_state_{BOT_NAME}.json"
+EXCEL_FILE         = f"trades_{BOT_NAME}.xlsx"
 ACTIVE_TRADES_FILE = f"active_trades_{BOT_NAME}.json"
 
 TRADES_LOCK = Lock()
@@ -76,24 +84,24 @@ EXCEL_LOCK  = Lock()
 _ID_LOCK    = Lock()
 
 SHEET_MAP = {
-    "CONFIMP1":  "confimp1",
-    "CONFIMP2":  "confimp2",
-    "CONFIMP3":  "confimp3",
-    "CONFIMP4":  "confimp4",
-    "CONFIMP5":  "confimp5",
-    "CONFIMP6":  "confimp6",
-    "CONFIMP7":  "confimp7",
-    "CONFIMP8":  "confimp8",
-    "CONFIMP9":  "confimp9",
-    "CONFIMP10": "confimp10",
-    "CONFIMP11": "confimp11",
-    "CONFIMP12": "confimp12",
-    "CONFIMP13": "confimp13",
-    "CONFIMP14": "confimp14",
-    "CONFIMP15": "confimp15",
-    "CONFIMP16": "confimp16",
-    "CONFIMP17": "confimp17",
-    "CONFIMP18": "confimp18",
+    "CONFTL1":  "conftl1",
+    "CONFTL2":  "conftl2",
+    "CONFTL3":  "conftl3",
+    "CONFTL4":  "conftl4",
+    "CONFTL5":  "conftl5",
+    "CONFTL6":  "conftl6",
+    "CONFTL7":  "conftl7",
+    "CONFTL8":  "conftl8",
+    "CONFTL9":  "conftl9",
+    "CONFTL10": "conftl10",
+    "CONFTL11": "conftl11",
+    "CONFTL12": "conftl12",
+    "CONFTL13": "conftl13",
+    "CONFTL14": "conftl14",
+    "CONFTL15": "conftl15",
+    "CONFTL16": "conftl16",
+    "CONFTL17": "conftl17",
+    "CONFTL18": "conftl18",
 }
 
 STRATEGIES = {
@@ -146,7 +154,7 @@ def send_telegram(message: str):
 
 # ================= EXCEL =================
 def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
-    sheet_name = SHEET_MAP.get(BOT_NAME, "confimp1")
+    sheet_name = SHEET_MAP.get(BOT_NAME, "conftl1")
 
     with EXCEL_LOCK:
         if not os.path.exists(EXCEL_FILE):
@@ -201,7 +209,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         wb.save(EXCEL_FILE)
 
 def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
-    sheet_name = SHEET_MAP.get(BOT_NAME, "confimp1")
+    sheet_name = SHEET_MAP.get(BOT_NAME, "conftl1")
 
     with EXCEL_LOCK:
         wb = openpyxl.load_workbook(EXCEL_FILE)
@@ -221,15 +229,6 @@ def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
         wb.save(EXCEL_FILE)
 
 # ================= INDICATORS =================
-def calculate_session_vwap(df):
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["open_time"], unit="ms").dt.date
-    tp = (df["high"] + df["low"] + df["close"]) / 3
-    df["tpv"] = tp * df["volume"]
-    df["cum_tpv"] = df.groupby("date")["tpv"].cumsum()
-    df["cum_vol"] = df.groupby("date")["volume"].cumsum()
-    return df["cum_tpv"] / df["cum_vol"]
-
 def calculate_atr(df, period):
     hl = df["high"] - df["low"]
     hc = (df["high"] - df["close"].shift()).abs()
@@ -264,32 +263,8 @@ def get_btc_returns():
         print(f"Ошибка загрузки BTC свечей: {e}")
         return None
 
-def check_swing(df, side, n):
-    """
-    Фильтр: True если сигнал НЕ должен быть срезан.
-    BUY: ни одна из n предыдущих свечей не имеет low ниже текущей
-    SELL: ни одна из n предыдущих свечей не имеет high выше текущей
-    """
-    if n == 0:
-        return True
-    current = df.iloc[-2]
-    for i in range(1, n + 1):
-        idx = -2 - i
-        if abs(idx) > len(df):
-            break
-        candle = df.iloc[idx]
-        if side == "BUY" and candle["low"] < current["low"]:
-            return False
-        if side == "SELL" and candle["high"] > current["high"]:
-            return False
-    return True
-
 def get_swing_num(df, side, n=5):
-    """
-    Информационно: ищем наидальнейшую свечу среди n предыдущих,
-    у которой low ниже (BUY) или high выше (SELL) текущей.
-    Возвращает номер дальней (1=предыдущая ... n) или 0.
-    """
+    """Наидальнейшая свеча из n предыдущих с low ниже (BUY) или high выше (SELL)."""
     current = df.iloc[-2]
     result = 0
     for i in range(1, n + 1):
@@ -298,12 +273,88 @@ def get_swing_num(df, side, n=5):
             break
         candle = df.iloc[idx]
         if side == "BUY" and candle["low"] < current["low"]:
-            result = i  # перезаписываем — остаётся дальняя
+            result = i
         if side == "SELL" and candle["high"] > current["high"]:
-            result = i  # перезаписываем — остаётся дальняя
+            result = i
     return result
 
-def check_volume_signal(symbol):
+def calculate_relvol(symbol, current_vol, anchor_interval, length):
+    try:
+        anchor_limit = length * 24 + 5 if anchor_interval == Client.KLINE_INTERVAL_1HOUR else length + 5
+        klines = client.futures_klines(
+            symbol=symbol, interval=anchor_interval, limit=anchor_limit
+        )
+        df_anchor = pd.DataFrame(klines, columns=[
+            "open_time","open","high","low","close","volume",
+            "close_time","quote_volume","trades","taker_buy_base","taker_buy_quote","ignore"
+        ])
+        df_anchor["open_time"] = pd.to_datetime(df_anchor["open_time"], unit="ms")
+        df_anchor["quote_volume"] = df_anchor["close"].astype(float) * df_anchor["volume"].astype(float)
+
+        current_hour = df_anchor["open_time"].iloc[-2].hour
+
+        if anchor_interval == Client.KLINE_INTERVAL_1HOUR:
+            same_hour = df_anchor[df_anchor["open_time"].dt.hour == current_hour].iloc[-(length+1):-1]
+        else:
+            same_hour = df_anchor.iloc[-(length+1):-1]
+
+        if len(same_hour) == 0:
+            return None
+
+        avg_vol = same_hour["quote_volume"].mean()
+        if avg_vol == 0:
+            return None
+
+        return round(current_vol / avg_vol, 3)
+    except Exception as e:
+        print(f"Ошибка RelVol {symbol}: {e}")
+        return None
+
+def find_pivot_high(df, length, idx):
+    """Проверяет является ли свеча idx свинг хаем."""
+    if idx < length or idx >= len(df) - length:
+        return False
+    center = df["high"].iloc[idx]
+    for i in range(idx - length, idx + length + 1):
+        if i == idx:
+            continue
+        if df["high"].iloc[i] >= center:
+            return False
+    return True
+
+def find_pivot_low(df, length, idx):
+    """Проверяет является ли свеча idx свинг лоу."""
+    if idx < length or idx >= len(df) - length:
+        return False
+    center = df["low"].iloc[idx]
+    for i in range(idx - length, idx + length + 1):
+        if i == idx:
+            continue
+        if df["low"].iloc[i] <= center:
+            return False
+    return True
+
+def calculate_slope(df, length):
+    """Рассчитывает наклон по выбранному методу."""
+    close = df["close"]
+    if USE_ATR_SLOPE:
+        atr = calculate_atr(df, length)
+        return (atr / length * SLOPE_MULT).iloc[-2]
+    elif USE_STDEV_SLOPE:
+        stdev = close.rolling(length).std()
+        return (stdev / length * SLOPE_MULT).iloc[-2]
+    elif USE_LINREG_SLOPE:
+        n = len(df)
+        idx = pd.Series(range(n))
+        sma_cn = (close * idx).rolling(length).mean()
+        sma_c  = close.rolling(length).mean()
+        sma_n  = idx.rolling(length).mean()
+        var_n  = idx.rolling(length).var()
+        slope  = (sma_cn - sma_c * sma_n) / var_n / 2 * SLOPE_MULT
+        return abs(slope.iloc[-2])
+    return 0.0
+
+def check_trendline_signal(symbol):
     klines = client.futures_klines(
         symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=LOOKBACK_CANDLES
     )
@@ -319,92 +370,107 @@ def check_volume_signal(symbol):
     df["ema200"] = df["close"].ewm(span=EMA_SLOW, adjust=False).mean()
     df["atr"]    = calculate_atr(df, ATR_LEN)
     df["natr"]   = (df["atr"] / df["close"]) * 100
-    df["vwap"]   = calculate_session_vwap(df)
     df["quote_volume"] = df["close"] * df["volume"]
 
-    avg_vol = df["quote_volume"].iloc[-(VOLUME_LOOKBACK + 2):-2].mean()
-    last = df.iloc[-2]
+    last_idx = len(df) - 2  # последняя закрытая свеча
+    last = df.iloc[last_idx]
+    prev = df.iloc[last_idx - 1]
 
-    spike_trend   = last["quote_volume"] >= avg_vol * VOL_MULT_TREND
-    spike_counter = last["quote_volume"] >= avg_vol * VOL_MULT_COUNTER
-
-    body     = abs(last["close"] - last["open"])
-    rng      = last["high"] - last["low"]
-    body_pct = 0 if rng == 0 else body / rng * 100
-    bull = last["close"] > last["open"]
-    bear = last["close"] < last["open"]
-
-    strong_body_trend   = body_pct >= MIN_BODY_TREND
-    strong_body_counter = body_pct >= MIN_BODY_COUNTER
-
-    below_ema20 = last["open"] < last["ema20"] and last["close"] < last["ema20"]
-    above_ema20 = last["open"] > last["ema20"] and last["close"] > last["ema20"]
-
-    below_vwap = (last["open"] < last["vwap"] and last["close"] < last["vwap"]) if USE_VWAP_FILTER else True
-    above_vwap = (last["open"] > last["vwap"] and last["close"] > last["vwap"]) if USE_VWAP_FILTER else True
-
-    buy_low_condition   = last["low"] < last["ema20"] and last["low"] < last["ema200"]
-    sell_high_condition = last["high"] > last["ema20"] and last["high"] > last["ema200"]
-
+    # ===== EMA фильтр =====
     bull_trend = last["ema20"] > last["ema200"]
     bear_trend = last["ema20"] < last["ema200"]
+    ema_bull_ok = bull_trend if USE_EMA_FILTER else True
+    ema_bear_ok = bear_trend if USE_EMA_FILTER else True
 
-    atr = last["atr"]
-    emas_far_enough  = abs(last["ema20"] - last["ema200"]) >= atr * ATR_GAP_MULT
-    ema20_far_vwap   = (abs(last["ema20"] - last["vwap"]) >= atr * EMA20_PROXIMITY_MULT) if USE_VWAP_FILTER else True
-    ema200_far_vwap  = (abs(last["ema200"] - last["vwap"]) >= atr * EMA200_PROXIMITY_MULT) if USE_VWAP_FILTER else True
-    ema20_far_ema200 = abs(last["ema20"] - last["ema200"]) >= atr * EMA20_PROXIMITY_MULT
-    ema20_clear_zone = ema20_far_vwap and ema20_far_ema200 and ema200_far_vwap
+    # ===== Рассчитываем наклон =====
+    slope = calculate_slope(df, SWING_LENGTH)
 
-    # ===== Свинг фильтры =====
-    swing_buy_trend_ok    = check_swing(df, "BUY",  SWING_BUY_TREND)
-    swing_sell_trend_ok   = check_swing(df, "SELL", SWING_SELL_TREND)
-    swing_buy_counter_ok  = check_swing(df, "BUY",  SWING_BUY_COUNTER)
-    swing_sell_counter_ok = check_swing(df, "SELL", SWING_SELL_COUNTER)
+    # ===== Ищем последний свинг хай и строим нисходящий трендлайн =====
+    upper = None
+    slope_ph = slope
+    for i in range(last_idx - 1, max(last_idx - LOOKBACK_CANDLES, SWING_LENGTH), -1):
+        if find_pivot_high(df, SWING_LENGTH, i):
+            upper = df["high"].iloc[i]
+            # Экстраполируем трендлайн до текущей свечи
+            bars_since = last_idx - i
+            upper = upper - slope_ph * bars_since
+            break
+
+    # ===== Ищем последний свинг лоу и строим восходящий трендлайн =====
+    lower = None
+    slope_pl = slope
+    for i in range(last_idx - 1, max(last_idx - LOOKBACK_CANDLES, SWING_LENGTH), -1):
+        if find_pivot_low(df, SWING_LENGTH, i):
+            lower = df["low"].iloc[i]
+            bars_since = last_idx - i
+            lower = lower + slope_pl * bars_since
+            break
+
+    if upper is None or lower is None:
+        return None
+
+    # Предыдущие значения трендлайнов
+    upper_prev = upper + slope_ph  # на одну свечу назад
+    lower_prev = lower - slope_pl
+
+    # ===== Пробои =====
+    # BUY: цена пробивает нисходящий трендлайн вверх
+    buy_breakout  = prev["close"] <= upper_prev and last["close"] > upper
+    # SELL: цена пробивает восходящий трендлайн вниз
+    sell_breakout = prev["close"] >= lower_prev and last["close"] < lower
 
     signals = []
-    if spike_trend and bull and strong_body_trend and below_ema20 and below_vwap and bull_trend and emas_far_enough and buy_low_condition and ema20_far_vwap and swing_buy_trend_ok:
+    if buy_breakout and ema_bull_ok:
         signals.append("BUY_TREND")
-    if spike_trend and bear and strong_body_trend and above_ema20 and above_vwap and bear_trend and emas_far_enough and sell_high_condition and ema20_far_vwap and swing_sell_trend_ok:
+    if sell_breakout and ema_bear_ok:
         signals.append("SELL_TREND")
-    if spike_counter and bull and strong_body_counter and below_ema20 and below_vwap and bear_trend and emas_far_enough and ema20_clear_zone and swing_buy_counter_ok:
-        signals.append("BUY_COUNTER")
-    if spike_counter and bear and strong_body_counter and above_ema20 and above_vwap and bull_trend and emas_far_enough and ema20_clear_zone and swing_sell_counter_ok:
-        signals.append("SELL_COUNTER")
 
     if not signals:
         return None
 
-    # Колонка X — наидальнейшая свеча из 5 (дальняя, не ближняя)
+    # ===== RelVol =====
+    anchor_interval = ANCHOR_MAP.get(RELVOL_ANCHOR, Client.KLINE_INTERVAL_1DAY)
+    current_vol = last["quote_volume"]
+    relvol = calculate_relvol(symbol, current_vol, anchor_interval, RELVOL_LENGTH) if USE_RELVOL_FILTER else None
+
+    if USE_RELVOL_FILTER and relvol is not None:
+        side = "BUY" if any("BUY" in s for s in signals) else "SELL"
+        if side == "BUY":
+            rv_ok = (RELVOL_MIN_BUY  <= 0 or relvol >= RELVOL_MIN_BUY)  and (RELVOL_MAX_BUY  <= 0 or relvol <= RELVOL_MAX_BUY)
+        else:
+            rv_ok = (RELVOL_MIN_SELL <= 0 or relvol >= RELVOL_MIN_SELL) and (RELVOL_MAX_SELL <= 0 or relvol <= RELVOL_MAX_SELL)
+        if not rv_ok:
+            return None
+
+    # ===== Свинг номер =====
     side_for_swing = "BUY" if any("BUY" in s for s in signals) else "SELL"
     swing_num = get_swing_num(df, side_for_swing, 5)
 
+    # ===== Объём 24h =====
     ticker_24h = client.futures_ticker(symbol=symbol)
     volume_24h = float(ticker_24h["quoteVolume"])
+
+    avg_vol = df["quote_volume"].iloc[-52:-2].mean()
 
     return {
         "symbol":    symbol,
         "signals":   signals,
         "close":     last["close"],
-        "low":       last["low"],
-        "high":      last["high"],
         "ema20":     last["ema20"],
         "ema200":    last["ema200"],
-        "vwap":      last["vwap"],
         "natr":      round(last["natr"], 3),
-        "volText":   f"x{last['quote_volume']/avg_vol:.2f}",
-        "prevVolCount": int((df.iloc[-5:-2]["quote_volume"] > last["quote_volume"]).sum()),
+        "volText":   f"x{current_vol/avg_vol:.2f}" if avg_vol > 0 else "x0",
         "volume_24h": volume_24h,
         "swing_num": swing_num,
+        "relvol":    relvol if relvol is not None else "N/A",
+        "upper":     round(upper, 6),
+        "lower":     round(lower, 6),
     }
 
 # ================= MAIN =================
 def main():
     symbols = get_liquid_futures_symbols()
     print(f"✅ Ликвидные токены: {len(symbols)}")
-
-    last_signal_time  = {}
-    cooldown_seconds  = COOLDOWN_BARS * 60 * 60
 
     def update_symbols_periodically():
         nonlocal symbols
@@ -437,6 +503,7 @@ def main():
             price_high = float(candle["h"])
             price_low  = float(candle["l"])
 
+            # ===== Закрытие открытых стратегий =====
             closed_trades = []
             with TRADES_LOCK:
                 for trade_id, trade in list(ACTIVE_TRADES.items()):
@@ -474,18 +541,15 @@ def main():
             if closed_trades:
                 save_active_trades()
 
-            now = time.time()
-            if now - last_signal_time.get(symbol, 0) < cooldown_seconds:
-                return
-
-            res = check_volume_signal(symbol)
+            # ===== Новые сигналы =====
+            res = check_trendline_signal(symbol)
             if not res:
                 return
 
-            last_signal_time[symbol] = now
             entry_price = res["close"]
             side = "BUY" if any("BUY" in s for s in res["signals"]) else "SELL"
 
+            # ===== Корреляция BTC =====
             try:
                 btc_returns = get_btc_returns()
                 if btc_returns is not None:
@@ -551,15 +615,17 @@ def main():
                 f"Close: {res['close']:.6f}\n"
                 f"EMA20: {res['ema20']:.6f}\n"
                 f"EMA200: {res['ema200']:.6f}\n"
-                f"VWAP: {res['vwap']:.6f}\n"
+                f"Upper TL: {res['upper']}\n"
+                f"Lower TL: {res['lower']}\n"
                 f"VOL {res['volText']}\n"
-                f"Prev volume higher: {res['prevVolCount']}/3\n"
                 f"VOL 24h: {vol24:.1f}M USDT\n"
                 f"Corr BTC: {corr_text}\n"
                 f"NATR: {res['natr']}%\n"
+                f"RelVol: {res['relvol']}\n"
                 f"Свинг: {res['swing_num']}\n"
             )
             print(msg_text)
+            # send_telegram для сигналов отключён
 
         except Exception as e:
             print(f"Ошибка process_signal: {e}")
@@ -575,7 +641,7 @@ def main():
 
     Thread(target=worker, daemon=True).start()
 
-    chunk_size = 30
+    chunk_size = 20
 
     while True:
         try:
