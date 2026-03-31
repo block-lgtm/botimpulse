@@ -504,7 +504,7 @@ def main():
             if msg.get("e") == "error":
                 print(f"🔴 WebSocket ошибка: {msg}")
                 send_telegram(f"🔴 {BOT_NAME} WebSocket ошибка: {msg.get('m', 'неизвестно')}")
-                return
+                raise Exception("WebSocket error — перезапуск")
 
             if 'data' not in msg or 'k' not in msg['data']:
                 return
