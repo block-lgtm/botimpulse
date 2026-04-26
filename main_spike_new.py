@@ -95,18 +95,10 @@ EXCEL_LOCK  = Lock()
 _ID_LOCK    = Lock()
 
 SHEET_MAP = {
-    "CONFSP1":  "confsp1",
-    "CONFSP2":  "confsp2",
-    "CONFSP3":  "confsp3",
-    "CONFSP4":  "confsp4",
-    "CONFSP5":  "confsp5",
-    "CONFSP6":  "confsp6",
-    "CONFSP7":  "confsp7",
-    "CONFSP8":  "confsp8",
-    "CONFSP9":  "confsp9",
-    "CONFSP10": "confsp10",
-    "CONFSP11": "confsp11",
-    "CONFSP12": "confsp12",
+    "CONFSP1": "confsp1",
+    "CONFSP2": "confsp2",
+    "CONFSP3": "confsp3",
+    "CONFSP4": "confsp4",
 }
 
 # Стратегии: 3:1, 6:1, 6:2, 10:3, 12:4
@@ -170,7 +162,6 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
                     wb.create_sheet(sn)
             if "Sheet" in wb.sheetnames:
                 wb.remove(wb["Sheet"])
-            wb.active = wb[sheet_name]
             wb.save(EXCEL_FILE)
 
         wb = openpyxl.load_workbook(EXCEL_FILE)
@@ -193,8 +184,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
 
         next_row = ws.max_row + 1
         dt = datetime.now()
-        ws["I"+str(next_row)] = dt.date()
-        ws["I"+str(next_row)].number_format = "DD.MM.YYYY"
+        ws["A"+str(next_row)] = dt.strftime("%d.%m.%Y")
         ws["B"+str(next_row)] = dt.strftime("%H:%M:%S")
         ws["C"+str(next_row)] = dt.strftime("%a")
         ws["D"+str(next_row)] = trade_info["symbol"]
@@ -203,7 +193,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["G"+str(next_row)] = ", ".join(trade_info["signals"])
         ws["H"+str(next_row)] = vol_text
         ws["J"+str(next_row)] = trade_info["entry_price"]
-        ws["L"+str(next_row)] = corr_text
+        ws["K"+str(next_row)] = corr_text
         ws["M"+str(next_row)] = trade_info["natr"]
         ws["X"+str(next_row)] = trade_info["swing_num"]
         ws["Y"+str(next_row)] = trade_info["delta_pct"]
@@ -213,7 +203,6 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             col = get_column_letter(EXCEL_STRAT_START_COL + idx)
             ws[f"{col}{next_row}"] = trade_info["strategies"][s]["status"]
 
-        wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
 def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
@@ -233,7 +222,6 @@ def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
                 ws[f"{col_d}{row}"] = round(close_price, 6)
                 break
 
-        wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
 # ================= INDICATORS =================
@@ -264,6 +252,13 @@ def get_liquid_futures_symbols():
             continue
         symbols.append(symbol)
     return symbols
+
+def get_symbols_with_open_trades():
+    with TRADES_LOCK:
+        return {
+            trade["symbol"] for trade in ACTIVE_TRADES.values()
+            if any(s["status"] == "OPEN" for s in trade["strategies"].values())
+        }
 
 def get_btc_returns():
     try:
@@ -490,8 +485,10 @@ def main():
         while True:
             time.sleep(3600)
             try:
-                symbols = get_liquid_futures_symbols()
-                print(f"♻️ Обновление токенов: {len(symbols)}")
+                liquid = get_liquid_futures_symbols()
+                open_syms = get_symbols_with_open_trades()
+                symbols = list(set(liquid) | open_syms)
+                print(f"♻️ Обновление: {len(liquid)} ликвидных + {len(open_syms)} с открытыми позициями")
             except Exception as e:
                 print(f"Ошибка обновления токенов: {e}")
 
@@ -502,15 +499,17 @@ def main():
     def process_signal(msg):
         try:
             if msg.get("e") == "error":
+                err_msg = msg.get("m","неизвестно")
                 print(f"🔴 WebSocket ошибка: {msg}")
-                send_telegram(f"🔴 {BOT_NAME} WebSocket ошибка: {msg.get('m', 'неизвестно')}")
+                if "reset" in str(err_msg).lower() or "closed" in str(err_msg).lower():
+                    send_telegram(f"🔴 {BOT_NAME} WebSocket ошибка: {err_msg}")
                 return
 
             if 'data' not in msg or 'k' not in msg['data']:
                 return
             candle = msg['data']['k']
             symbol = candle['s']
-            if symbol not in symbols or not candle['x']:
+            if not candle['x']:
                 return
 
             price_high = float(candle["h"])
@@ -553,6 +552,10 @@ def main():
 
             if closed_trades:
                 save_active_trades()
+
+            # Новые сигналы только для символов из основного списка
+            if symbol not in symbols:
+                return
 
             # Cooldown
             now = time.time()
@@ -649,6 +652,7 @@ def main():
                 f"RelVol: {res['relvol']}\n"
             )
             print(msg_text)
+            send_telegram(msg_text)
 
         except Exception as e:
             print(f"Ошибка process_signal: {e}")
@@ -669,11 +673,14 @@ def main():
 
     while True:
         try:
+            open_syms = get_symbols_with_open_trades()
+            all_symbols = list(set(symbols) | open_syms)
+
             twm = ThreadedWebsocketManager()
             twm.start()
 
-            for i in range(0, len(symbols), chunk_size):
-                streams = [f"{s.lower()}@kline_1h" for s in symbols[i:i+chunk_size]]
+            for i in range(0, len(all_symbols), chunk_size):
+                streams = [f"{s.lower()}@kline_1h" for s in all_symbols[i:i+chunk_size]]
                 twm.start_multiplex_socket(callback=handle_kline, streams=streams)
 
             print("🟢 WebSocket запущен")
@@ -681,13 +688,14 @@ def main():
 
             time.sleep(24 * 60 * 60)
             print("♻️ Плановый перезапуск WebSocket...")
-            send_telegram(f"♻️ {BOT_NAME} плановый перезапуск WebSocket")
             save_active_trades()
             twm.stop()
 
         except Exception as e:
-            print(f"🔴 WebSocket упал: {e}. Переподключение через 30 секунд...")
-            send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {e}. Переподключение через 30 секунд...")
+            err_str = str(e)
+            print(f"🔴 WebSocket упал: {err_str}. Переподключение через 30 секунд...")
+            if "Socket Manager" not in err_str and "initialize" not in err_str:
+                send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {err_str}")
             save_active_trades()
             try:
                 twm.stop()
