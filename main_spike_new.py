@@ -652,7 +652,6 @@ def main():
                 f"RelVol: {res['relvol']}\n"
             )
             print(msg_text)
-            send_telegram(msg_text)
 
         except Exception as e:
             print(f"Ошибка process_signal: {e}")
