@@ -117,7 +117,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         wb = openpyxl.load_workbook(EXCEL_FILE)
         if sheet_name not in wb.sheetnames: wb.create_sheet(sheet_name)
         ws = wb[sheet_name]
-        headers = {"A":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем","F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа","K":"Корреляция","M":"NATR%","N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"12:4","S":"3:1 цена","T":"6:1 цена","U":"6:2 цена","V":"10:3 цена","W":"12:4 цена","X":"Свинг"}
+        headers = {"I":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем","F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа","L":"Корреляция","M":"NATR%","N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"12:4","S":"3:1 цена","T":"6:1 цена","U":"6:2 цена","V":"10:3 цена","W":"12:4 цена","X":"Свинг"}
         if ws.max_row==1 and ws.cell(row=1,column=1).value is None:
             for col,header in headers.items(): ws[f"{col}1"]=header
         next_row = ws.max_row+1

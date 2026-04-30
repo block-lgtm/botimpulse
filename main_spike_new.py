@@ -170,9 +170,9 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws = wb[sheet_name]
 
         headers = {
-            "A":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем",
+            "I":"Дата","B":"Время","C":"День","D":"Тикет","E":"Объем",
             "F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа",
-            "K":"Корреляция","M":"NATR%",
+            "L":"Корреляция","M":"NATR%",
             "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"12:4",
             "S":"3:1 цена","T":"6:1 цена","U":"6:2 цена",
             "V":"10:3 цена","W":"12:4 цена",
@@ -184,7 +184,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
 
         next_row = ws.max_row + 1
         dt = datetime.now()
-        ws["A"+str(next_row)] = dt.strftime("%d.%m.%Y")
+        ws["I"+str(next_row)] = dt.strftime("%d.%m.%Y")
         ws["B"+str(next_row)] = dt.strftime("%H:%M:%S")
         ws["C"+str(next_row)] = dt.strftime("%a")
         ws["D"+str(next_row)] = trade_info["symbol"]
@@ -193,7 +193,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["G"+str(next_row)] = ", ".join(trade_info["signals"])
         ws["H"+str(next_row)] = vol_text
         ws["J"+str(next_row)] = trade_info["entry_price"]
-        ws["K"+str(next_row)] = corr_text
+        ws["L"+str(next_row)] = corr_text
         ws["M"+str(next_row)] = trade_info["natr"]
         ws["X"+str(next_row)] = trade_info["swing_num"]
         ws["Y"+str(next_row)] = trade_info["delta_pct"]
