@@ -95,10 +95,18 @@ EXCEL_LOCK  = Lock()
 _ID_LOCK    = Lock()
 
 SHEET_MAP = {
-    "CONFSP1": "confsp1",
-    "CONFSP2": "confsp2",
-    "CONFSP3": "confsp3",
-    "CONFSP4": "confsp4",
+    "CONFSP1":  "confsp1",
+    "CONFSP2":  "confsp2",
+    "CONFSP3":  "confsp3",
+    "CONFSP4":  "confsp4",
+    "CONFSP5":  "confsp5",
+    "CONFSP6":  "confsp6",
+    "CONFSP7":  "confsp7",
+    "CONFSP8":  "confsp8",
+    "CONFSP9":  "confsp9",
+    "CONFSP10": "confsp10",
+    "CONFSP11": "confsp11",
+    "CONFSP12": "confsp12",
 }
 
 # Стратегии: 3:1, 6:1, 6:2, 10:3, 12:4
@@ -162,6 +170,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
                     wb.create_sheet(sn)
             if "Sheet" in wb.sheetnames:
                 wb.remove(wb["Sheet"])
+            wb.active = wb[sheet_name]
             wb.save(EXCEL_FILE)
 
         wb = openpyxl.load_workbook(EXCEL_FILE)
@@ -202,7 +211,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         for idx, s in enumerate(STRATEGIES.keys()):
             col = get_column_letter(EXCEL_STRAT_START_COL + idx)
             ws[f"{col}{next_row}"] = trade_info["strategies"][s]["status"]
-
+        wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
 def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
@@ -221,7 +230,7 @@ def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
                 ws[f"{col_s}{row}"] = status
                 ws[f"{col_d}{row}"] = round(close_price, 6)
                 break
-
+        wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
 # ================= INDICATORS =================
