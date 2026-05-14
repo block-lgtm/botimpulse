@@ -8,6 +8,7 @@ import os
 import json
 import argparse
 import openpyxl
+import math
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
 from threading import Thread, Lock
@@ -175,8 +176,8 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             "F":"Trade_id","G":"Тип","H":"Импульс","J":"Цена входа",
             "L":"Корреляция","M":"NATR%",
             "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"12:4",
-            "S":"3:1 цена","T":"6:1 цена","U":"6:2 цена",
-            "V":"10:3 цена","W":"12:4 цена",
+            "S":"ATR Ratio 50","T":"ATR Ratio 75","U":"ATR Ratio 100",
+            "V":"Expansion 3","W":"Expansion 5",
             "X":"Свинг","Y":"Delta%","Z":"RelVol"
         }
         if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
@@ -196,6 +197,11 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["J"+str(next_row)] = trade_info["entry_price"]
         ws["L"+str(next_row)] = corr_text
         ws["M"+str(next_row)] = trade_info["natr"]
+        ws["S"+str(next_row)] = trade_info["atr_ratio_50"]
+        ws["T"+str(next_row)] = trade_info["atr_ratio_75"]
+        ws["U"+str(next_row)] = trade_info["atr_ratio_100"]
+        ws["V"+str(next_row)] = trade_info["expansion_3"]
+        ws["W"+str(next_row)] = trade_info["expansion_5"]
         ws["X"+str(next_row)] = trade_info["swing_num"]
         ws["Y"+str(next_row)] = trade_info["delta_pct"]
         ws["Z"+str(next_row)] = trade_info["relvol"]
@@ -206,7 +212,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
 
-def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
+def update_trade_status_in_excel(trade_id, strategy_name, status):
     sheet_name = SHEET_MAP.get(BOT_NAME, "confsp1")
 
     with EXCEL_LOCK:
@@ -216,11 +222,8 @@ def update_trade_status_in_excel(trade_id, strategy_name, status, close_price):
         for row in range(2, ws.max_row+1):
             if str(ws[f"F{row}"].value) == trade_id:
                 col_map_status  = {"3:1":"N","6:1":"O","6:2":"P","10:3":"Q","12:4":"R"}
-                col_map_details = {"3:1":"S","6:1":"T","6:2":"U","10:3":"V","12:4":"W"}
                 col_s = col_map_status[strategy_name]
-                col_d = col_map_details[strategy_name]
                 ws[f"{col_s}{row}"] = status
-                ws[f"{col_d}{row}"] = round(close_price, 6)
                 break
         wb.active = wb[sheet_name]
         wb.save(EXCEL_FILE)
@@ -241,6 +244,42 @@ def calculate_atr(df, period):
     lc = (df["low"] - df["close"].shift()).abs()
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.rolling(period).mean()
+
+def calculate_atr_ratio(df, avg_len, atr_len=14):
+    atr = calculate_atr(df, atr_len)
+    atr_avg = atr.rolling(avg_len).mean()
+
+    if pd.isna(atr_avg.iloc[-2]) or atr_avg.iloc[-2] == 0:
+        return 0
+
+    ratio = atr.iloc[-2] / atr_avg.iloc[-2]
+    return round(ratio, 4)
+
+
+def calculate_expansion(df, lookback, natr_len=14):
+    atr = calculate_atr(df, natr_len)
+
+    last_close = df["close"].iloc[-2]
+    prev_close = df["close"].iloc[-2 - lookback]
+
+    atr_value = atr.iloc[-2]
+
+    if prev_close == 0 or last_close == 0 or atr_value == 0:
+        return 0
+
+    # Pine:
+    # natr = atr / close * 100
+    natr = (atr_value / last_close) * 100
+
+    # Pine:
+    # abs(close - close[lookback]) / close[lookback] * 100
+    price_change_pct = abs(last_close - prev_close) / prev_close * 100
+
+    # Pine:
+    # expansion = priceChangePct / (natr * sqrt(lookback))
+    expansion = price_change_pct / (natr * math.sqrt(lookback))
+
+    return round(expansion, 4)
 
 def get_liquid_futures_symbols():
     tickers = client._request_futures_api(method="get", path="ticker/24hr")
@@ -382,6 +421,13 @@ def check_volume_signal(symbol):
     df["vwap"]   = calculate_session_vwap(df)
     df["quote_volume"] = df["close"] * df["volume"]
 
+    atr_ratio_50  = calculate_atr_ratio(df, 50)
+    atr_ratio_75  = calculate_atr_ratio(df, 75)
+    atr_ratio_100 = calculate_atr_ratio(df, 100)
+
+    expansion_3 = calculate_expansion(df, 3)
+    expansion_5 = calculate_expansion(df, 5)
+
     avg_vol = df["quote_volume"].iloc[-(VOLUME_LOOKBACK + 2):-2].mean()
     last = df.iloc[-2]
 
@@ -471,6 +517,11 @@ def check_volume_signal(symbol):
         "swing_num": swing_num,
         "delta_pct": delta_pct,
         "relvol":    relvol if relvol is not None else "N/A",
+        "atr_ratio_50": atr_ratio_50,
+        "atr_ratio_75": atr_ratio_75,
+        "atr_ratio_100": atr_ratio_100,
+        "expansion_3": expansion_3,
+        "expansion_5": expansion_5,
     }
 
 # ================= MAIN =================
@@ -541,9 +592,12 @@ def main():
                                 continue
 
                         strat["status"] = result
-                        close_price = strat["sl"] if result == "SL" else strat["tp"]
-                        Thread(target=update_trade_status_in_excel,
-                               args=(trade_id, strat_name, result, close_price), daemon=True).start()
+
+                        Thread(
+                            target=update_trade_status_in_excel,
+                            args=(trade_id, strat_name, result),
+                            daemon=True
+                        ).start()
 
                     if all(s["status"] != "OPEN" for s in trade["strategies"].values()):
                         closed_trades.append(trade_id)
@@ -627,6 +681,11 @@ def main():
                     "swing_num":   res["swing_num"],
                     "delta_pct":   res["delta_pct"],
                     "relvol":      res["relvol"],
+                    "atr_ratio_50": res["atr_ratio_50"],
+                    "atr_ratio_75": res["atr_ratio_75"],
+                    "atr_ratio_100": res["atr_ratio_100"],
+                    "expansion_3": res["expansion_3"],
+                    "expansion_5": res["expansion_5"],
                 },
                 vol_text=res["volText"],
                 vol24=res["volume_24h"] / 1_000_000,
@@ -669,7 +728,7 @@ def main():
     Thread(target=worker, daemon=True).start()
 
     # ===== WebSocket с переподключением и плановым перезапуском =====
-    chunk_size = 30
+    chunk_size = 10
 
     while True:
         try:
