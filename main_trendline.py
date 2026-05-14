@@ -84,24 +84,11 @@ EXCEL_LOCK  = Lock()
 _ID_LOCK    = Lock()
 
 SHEET_MAP = {
-    "CONFTL1":  "conftl1",
-    "CONFTL2":  "conftl2",
     "CONFTL3":  "conftl3",
-    "CONFTL4":  "conftl4",
     "CONFTL5":  "conftl5",
-    "CONFTL6":  "conftl6",
     "CONFTL7":  "conftl7",
-    "CONFTL8":  "conftl8",
     "CONFTL9":  "conftl9",
-    "CONFTL10": "conftl10",
     "CONFTL11": "conftl11",
-    "CONFTL12": "conftl12",
-    "CONFTL13": "conftl13",
-    "CONFTL14": "conftl14",
-    "CONFTL15": "conftl15",
-    "CONFTL16": "conftl16",
-    "CONFTL17": "conftl17",
-    "CONFTL18": "conftl18",
 }
 
 STRATEGIES = {
