@@ -16,13 +16,6 @@
   "SWING_SELL_TREND": 0,
   "SWING_BUY_COUNTER": 0,
   "SWING_SELL_COUNTER": 0,
-
-  "USE_DELTA_FILTER": false,
-  "DELTA_MIN_BUY": 0,
-  "DELTA_MAX_BUY": 0,
-  "DELTA_MIN_SELL": 0,
-  "DELTA_MAX_SELL": 0,
-
   "USE_RELVOL_FILTER": false,
   "RELVOL_ANCHOR": "1d",
   "RELVOL_LENGTH": 1,
@@ -30,24 +23,181 @@
   "RELVOL_MAX_BUY": 0,
   "RELVOL_MIN_SELL": 0,
   "RELVOL_MAX_SELL": 0,
-
-  "USE_VOLUME_FILTER": false,
-  "VOLUME_MIN_BUY": 0,
-  "VOLUME_MAX_BUY": 0,
-  "VOLUME_MIN_SELL": 0,
-  "VOLUME_MAX_SELL": 0,
-
-  "USE_NATR_FILTER": false,
-  "NATR_MIN_BUY": 0,
-  "NATR_MAX_BUY": 0,
-  "NATR_MIN_SELL": 0,
-  "NATR_MAX_SELL": 0,
-
-  "USE_CORREL_FILTER": false,
-  "CORREL_MIN_BUY": 0,
-  "CORREL_MAX_BUY": 0,
-  "CORREL_MIN_SELL": 0,
-  "CORREL_MAX_SELL": 0,
-
-  "SKIP_DAYS": []
+  "STRATEGIES_CONFIG": {
+    "3:1": {
+      "enabled": true,
+      "tp": 0.03,
+      "sl": 0.01,
+      "BUY": {
+        "USE_NATR_FILTER": false,
+        "NATR_MIN": 1,
+        "NATR_MAX": 4.5,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": []
+      },
+      "SELL": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 0.9,
+        "NATR_MAX": 4.5,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": 0.4,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": ["monday", "tuesday", "sunday"]
+      }
+    },
+    "6:1": {
+      "enabled": true,
+      "tp": 0.06,
+      "sl": 0.01,
+      "BUY": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 1.5,
+        "NATR_MAX": 7,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 100,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": []
+      },
+      "SELL": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 0.9,
+        "NATR_MAX": 4.5,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": 0.4,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": ["monday", "tuesday", "sunday"]
+      }
+    },
+    "6:2": {
+      "enabled": true,
+      "tp": 0.06,
+      "sl": 0.02,
+      "BUY": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 1,
+        "NATR_MAX": 5,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": []
+      },
+      "SELL": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 0.9,
+        "NATR_MAX": 4.5,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": 0.4,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": ["monday", "tuesday", "sunday"]
+      }
+    },
+    "10:3": {
+      "enabled": true,
+      "tp": 0.10,
+      "sl": 0.03,
+      "BUY": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 1,
+        "NATR_MAX": 7,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": []
+      },
+      "SELL": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 1.5,
+        "NATR_MAX": 7,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 100,
+        "USE_VOLUME_FILTER": true,
+        "VOLUME_MIN": 50000000,
+        "VOLUME_MAX": 5000000000000000,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": ["monday", "tuesday", "wednesday"]
+      }
+    },
+    "12:4": {
+      "enabled": true,
+      "tp": 0.12,
+      "sl": 0.04,
+      "BUY": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 1,
+        "NATR_MAX": 7,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 90,
+        "USE_VOLUME_FILTER": false,
+        "VOLUME_MIN": 0,
+        "VOLUME_MAX": 0,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": []
+      },
+      "SELL": {
+        "USE_NATR_FILTER": true,
+        "NATR_MIN": 1.5,
+        "NATR_MAX": 7,
+        "USE_DELTA_FILTER": true,
+        "DELTA_MIN": -100,
+        "DELTA_MAX": 100,
+        "USE_VOLUME_FILTER": true,
+        "VOLUME_MIN": 50000000,
+        "VOLUME_MAX": 5000000000000000,
+        "USE_CORREL_FILTER": true,
+        "CORREL_MIN": -100,
+        "CORREL_MAX": 0.9,
+        "SKIP_DAYS": ["monday", "tuesday", "wednesday"]
+      }
+    }
+  }
 }
