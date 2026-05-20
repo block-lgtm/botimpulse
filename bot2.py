@@ -628,10 +628,11 @@ def main():
     task_queue = Queue()
 
     def process_signal(msg):
-    # Быстрая проверка дня — до любых вычислений
-    today = datetime.utcnow().strftime("%A").lower()
-    if today in SKIP_DAYS:
-        return
+        # Быстрая проверка дня — до любых вычислений
+        today = datetime.utcnow().strftime("%A").lower()
+        
+        if today in SKIP_DAYS:
+            return
         try:
             if msg.get("e") == "error":
                 err_msg = msg.get("m","неизвестно")
