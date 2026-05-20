@@ -3,7 +3,8 @@ import os
 from threading import Lock
 from datetime import datetime
 
-DB_FILE = "trades.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(BASE_DIR, "trades.db")
 _DB_LOCK = Lock()
 
 
