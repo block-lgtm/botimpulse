@@ -28,6 +28,31 @@ BOT_NAME = config["NAME"]
 
 load_dotenv()
 
+# Фильтр по объёму свечи (quote volume текущей свечи, не 24h)
+USE_VOLUME_FILTER  = config.get("USE_VOLUME_FILTER", False)
+VOLUME_MIN_BUY     = float(config.get("VOLUME_MIN_BUY",  0))
+VOLUME_MAX_BUY     = float(config.get("VOLUME_MAX_BUY",  0))
+VOLUME_MIN_SELL    = float(config.get("VOLUME_MIN_SELL", 0))
+VOLUME_MAX_SELL    = float(config.get("VOLUME_MAX_SELL", 0))
+
+# Фильтр по NATR
+USE_NATR_FILTER    = config.get("USE_NATR_FILTER", False)
+NATR_MIN_BUY       = float(config.get("NATR_MIN_BUY",  0))
+NATR_MAX_BUY       = float(config.get("NATR_MAX_BUY",  0))
+NATR_MIN_SELL      = float(config.get("NATR_MIN_SELL", 0))
+NATR_MAX_SELL      = float(config.get("NATR_MAX_SELL", 0))
+
+# Фильтр по корреляции с BTC
+USE_CORREL_FILTER  = config.get("USE_CORREL_FILTER", False)
+CORREL_MIN_BUY     = float(config.get("CORREL_MIN_BUY",  0))
+CORREL_MAX_BUY     = float(config.get("CORREL_MAX_BUY",  0))
+CORREL_MIN_SELL    = float(config.get("CORREL_MIN_SELL", 0))
+CORREL_MAX_SELL    = float(config.get("CORREL_MAX_SELL", 0))
+
+# Дни недели когда не торгуем
+SKIP_DAYS          = [d.lower() for d in config.get("SKIP_DAYS", [])]
+# Пример: ["monday", "saturday", "sunday"]
+
 # ================= НАСТРОЙКИ =================
 MIN_24H_VOLUME   = config["MIN_24H_VOLUME"]
 LOOKBACK_CANDLES = config["LOOKBACK_CANDLES"]
@@ -423,6 +448,19 @@ def calculate_slope(df, length):
         return abs(slope.iloc[-2])
     return 0.0
 
+def apply_range_filter(value, min_val, max_val):
+    """
+    Проверяет попадает ли value в диапазон [min_val, max_val].
+    0 = фильтр по этой границе выключен.
+    """
+    if value is None:
+        return False
+    if min_val > 0 and value < min_val:
+        return False
+    if max_val > 0 and value > max_val:
+        return False
+    return True
+
 def check_trendline_signal(symbol):
     klines = client.futures_klines(
         symbol=symbol, interval=Client.KLINE_INTERVAL_1HOUR, limit=LOOKBACK_CANDLES
@@ -495,10 +533,28 @@ def check_trendline_signal(symbol):
     # SELL: цена пробивает восходящий трендлайн вниз
     sell_breakout = prev["close"] >= lower_prev and last["close"] < lower
 
+    # ===== Volume фильтр (quote volume текущей свечи в млн) =====
+    candle_vol_m = last["quote_volume"] / 1_000_000
+    if USE_VOLUME_FILTER:
+        vol_buy_ok  = apply_range_filter(candle_vol_m, VOLUME_MIN_BUY,  VOLUME_MAX_BUY)
+        vol_sell_ok = apply_range_filter(candle_vol_m, VOLUME_MIN_SELL, VOLUME_MAX_SELL)
+    else:
+        vol_buy_ok  = True
+        vol_sell_ok = True
+
+    # ===== NATR фильтр =====
+    natr_val = last["natr"]
+    if USE_NATR_FILTER:
+        natr_buy_ok  = apply_range_filter(natr_val, NATR_MIN_BUY,  NATR_MAX_BUY)
+        natr_sell_ok = apply_range_filter(natr_val, NATR_MIN_SELL, NATR_MAX_SELL)
+    else:
+        natr_buy_ok  = True
+        natr_sell_ok = True
+
     signals = []
-    if buy_breakout and ema_bull_ok:
+    if buy_breakout and ema_bull_ok and vol_buy_ok and natr_buy_ok:
         signals.append("BUY_TREND")
-    if sell_breakout and ema_bear_ok:
+    if sell_breakout and ema_bear_ok vol_sell_ok and natr_sell_ok:
         signals.append("SELL_TREND")
 
     if not signals:
@@ -571,6 +627,10 @@ def main():
     task_queue = Queue()
 
     def process_signal(msg):
+    # Быстрая проверка дня — до любых вычислений
+    today = datetime.utcnow().strftime("%A").lower()
+    if today in SKIP_DAYS:
+        return
         try:
             if msg.get("e") == "error":
                 err_msg = msg.get("m","неизвестно")
@@ -625,6 +685,26 @@ def main():
             except Exception as e:
                 print(f"Ошибка корреляции {symbol}: {e}")
                 corr_text = "N/A"
+
+            # После расчёта corr_text добавь:
+
+            # ===== Фильтр по дням =====
+            today = datetime.utcnow().strftime("%A").lower()  # "monday", "tuesday" ...
+            if today in SKIP_DAYS:
+                print(f"⏭️ {symbol} пропущен — день {today} в SKIP_DAYS")
+                return
+
+            # ===== Фильтр по корреляции =====
+            if USE_CORREL_FILTER and isinstance(corr_text, float):
+                side = "BUY" if any("BUY" in s for s in res["signals"]) else "SELL"
+                if side == "BUY":
+                    if not apply_range_filter(corr_text, CORREL_MIN_BUY, CORREL_MAX_BUY):
+                        print(f"⏭️ {symbol} пропущен — корреляция {corr_text} вне диапазона BUY")
+                        return
+                else:
+                    if not apply_range_filter(corr_text, CORREL_MIN_SELL, CORREL_MAX_SELL):
+                        print(f"⏭️ {symbol} пропущен — корреляция {corr_text} вне диапазона SELL")
+                        return
 
             trade_id   = get_next_trade_id()
             strategies = {}

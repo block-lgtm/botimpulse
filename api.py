@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 from datetime import datetime, timezone
-from db import get_open_trades, get_closed_trades, get_stats, get_equity_curve
+from db import get_open_trades, get_closed_trades, get_stats, get_equity_curve, get_stats_detailed
 
 app = FastAPI(title="Trading Bot Dashboard")
 
@@ -100,6 +100,9 @@ def closed_trades(limit: int = 200, bot: str = None):
 def stats(bot: str = None):
     return get_stats(bot_name=bot)
 
+@app.get("/stats/detailed")
+def stats_detailed(bot: str = None):
+    return get_stats_detailed(bot_name=bot)
 
 @app.get("/equity")
 def equity(bot: str = None):
@@ -148,10 +151,11 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         # Сразу отправляем текущее состояние при подключении
         await websocket.send_text(json.dumps({
-            "type":   "init",
-            "open":   group_trades_by_id(get_open_trades()),
-            "stats":  get_stats(),
-            "equity": get_equity_curve(),
+            "type":        "init",
+            "open":        group_trades_by_id(get_open_trades()),
+            "stats":       get_stats(),
+            "stats_detail": get_stats_detailed(),
+            "equity":      get_equity_curve(),
         }))
 
         # Держим соединение живым, слушаем пинги от клиента
@@ -188,10 +192,11 @@ async def push_updates():
             trades = group_trades_by_id(rows)
             trades = [enrich_open_trade(t) for t in trades]
             await manager.broadcast({
-                "type":   "update",
-                "open":   trades,
-                "stats":  get_stats(),
-                "equity": get_equity_curve(),
+                "type":        "update",
+                "open":        trades,
+                "stats":       get_stats(),
+                "stats_detail": get_stats_detailed(),
+                "equity":      get_equity_curve(),
             })
         except Exception as e:
             print(f"Ошибка push_updates: {e}")
