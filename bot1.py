@@ -583,9 +583,10 @@ def check_volume_signal(symbol):
 
     signals = []
     if volume_spike and bull and strong_body and ema_bull_ok and below_vwap and not recent_spike and swing_buy_trend_ok and delta_buy_ok and relvol_buy_ok and vol_buy_ok and natr_buy_ok:
-    signals.append("BUY_TREND")
+        signals.append("BUY_TREND")
+
     if volume_spike and bear and strong_body and ema_bear_ok and above_vwap and not recent_spike and swing_sell_trend_ok and delta_sell_ok and relvol_sell_ok and vol_sell_ok and natr_sell_ok:
-    signals.append("SELL_TREND")
+        signals.append("SELL_TREND")
 
     if not signals:
         return None
