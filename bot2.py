@@ -3,7 +3,7 @@ from binance import ThreadedWebsocketManager
 import pandas as pd
 import numpy as np
 import time
-from datetime import datetime
+from datetime import datetime, UTC
 import requests
 import os
 import json
@@ -112,10 +112,6 @@ _ID_LOCK    = Lock()
 
 SHEET_MAP = {
     "CONFTL3":  "conftl3",
-    "CONFTL5":  "conftl5",
-    "CONFTL7":  "conftl7",
-    "CONFTL9":  "conftl9",
-    "CONFTL11": "conftl11",
 }
 
 STRATEGIES = {
@@ -629,7 +625,7 @@ def main():
 
     def process_signal(msg):
         # Быстрая проверка дня — до любых вычислений
-        today = datetime.utcnow().strftime("%A").lower()
+        today = datetime.now(UTC).strftime("%A").lower()
         
         if today in SKIP_DAYS:
             return

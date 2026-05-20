@@ -2,7 +2,7 @@ from binance.client import Client
 from binance import ThreadedWebsocketManager
 import pandas as pd
 import time
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 import requests
 import os
 import json
@@ -123,9 +123,6 @@ _ID_LOCK    = Lock()
 
 SHEET_MAP = {
     "CONFSP1":  "confsp1",
-    "CONFSP2":  "confsp2",
-    "CONFSP3":  "confsp3",
-    "CONFSP4":  "confsp4",
 }
 
 # Стратегии: 3:1, 6:1, 6:2, 10:3, 12:4
@@ -646,7 +643,7 @@ def main():
 
     def process_signal(msg):
         # Быстрая проверка дня — до любых вычислений
-        today = datetime.utcnow().strftime("%A").lower()
+        today = datetime.now(UTC).strftime("%A").lower()
 
         if today in SKIP_DAYS:
             return
