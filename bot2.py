@@ -554,6 +554,7 @@ def check_trendline_signal(symbol):
     signals = []
     if buy_breakout and ema_bull_ok and vol_buy_ok and natr_buy_ok:
         signals.append("BUY_TREND")
+        
     if sell_breakout and ema_bear_ok vol_sell_ok and natr_sell_ok:
         signals.append("SELL_TREND")
 
