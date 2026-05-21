@@ -769,13 +769,14 @@ def main():
             vol_m        = res["volume_24h"] / 1_000_000  # или candle vol если нужен
             corr_val     = corr_text
 
+            # Стало:
             strategies = {}
             for name, strat_cfg in STRATEGIES.items():
-                # Проверяем фильтры этой стратегии для этой стороны
                 if not check_strategy_filters(strat_cfg, side, natr_val, delta_val, vol_m, corr_val):
                     print(f"⏭️ {name} пропущена для {symbol} {side} — не прошла фильтры")
+                    # Записываем прочерк — следим за ценой не будем, но в истории видно
+                    strategies[name] = {"tp": None, "sl": None, "status": "—"}
                     continue
-
                 if side == "BUY":
                     tp = entry_price * (1 + strat_cfg["tp"])
                     sl = entry_price * (1 - abs(strat_cfg["sl"]))
@@ -784,8 +785,8 @@ def main():
                     sl = entry_price * (1 + abs(strat_cfg["sl"]))
                 strategies[name] = {"tp": tp, "sl": sl, "status": "OPEN"}
 
-            # Если ни одна стратегия не прошла — не открываем сделку
-            if not strategies:
+            # Закрываем только если вообще ни одной OPEN стратегии
+            if not any(s["status"] == "OPEN" for s in strategies.values()):
                 print(f"⏭️ {symbol} {side} — все стратегии отфильтрованы, сделка не открыта")
                 return
 
