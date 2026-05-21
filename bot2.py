@@ -114,13 +114,26 @@ SHEET_MAP = {
     "CONFTL3":  "conftl3",
 }
 
+_strat_raw = config.get("STRATEGIES_CONFIG", {
+    "3:1":  {"enabled": True, "tp": 0.03, "sl": 0.01, "BUY": {}, "SELL": {}},
+    "6:1":  {"enabled": True, "tp": 0.06, "sl": 0.01, "BUY": {}, "SELL": {}},
+    "6:2":  {"enabled": True, "tp": 0.06, "sl": 0.02, "BUY": {}, "SELL": {}},
+    "10:3": {"enabled": True, "tp": 0.10, "sl": 0.03, "BUY": {}, "SELL": {}},
+    "12:4": {"enabled": True, "tp": 0.12, "sl": 0.04, "BUY": {}, "SELL": {}},
+})
+
 STRATEGIES = {
-    "3:1":  {"tp": 0.03,  "sl": -0.01},
-    "6:1":  {"tp": 0.06,  "sl": -0.01},
-    "6:2":  {"tp": 0.06,  "sl": -0.02},
-    "10:3": {"tp": 0.10,  "sl": -0.03},
-    "12:4": {"tp": 0.12,  "sl": -0.04},
+    name: {
+        "tp":   float(s["tp"]),
+        "sl":   -float(s["sl"]),
+        "BUY":  s.get("BUY",  {}),
+        "SELL": s.get("SELL", {}),
+    }
+    for name, s in _strat_raw.items()
+    if s.get("enabled", True)
 }
+
+print(f"✅ Активные стратегии: {list(STRATEGIES.keys())}")
 
 def check_and_close_strategies(symbol, price_high, price_low):
     closed_trades = []
@@ -225,7 +238,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
             "N":"3:1","O":"6:1","P":"6:2","Q":"10:3","R":"12:4",
             "S":"ATR Ratio 50","T":"ATR Ratio 75","U":"ATR Ratio 100",
             "V":"Expansion 3","W":"Expansion 5",
-            "X":"Свинг"
+            "X":"Свинг","Y":"Delta%"
         }
         if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
             for col, header in headers.items():
@@ -250,6 +263,7 @@ def write_trade_to_excel(trade_id, trade_info, vol_text, vol24, corr_text):
         ws["V"+str(next_row)] = trade_info["expansion_3"]
         ws["W"+str(next_row)] = trade_info["expansion_5"]
         ws["X"+str(next_row)] = trade_info["swing_num"]
+        ws["Y"+str(next_row)] = trade_info.get("delta_pct")
 
         for idx, s in enumerate(STRATEGIES.keys()):
             col = get_column_letter(EXCEL_STRAT_START_COL + idx)
@@ -445,17 +459,65 @@ def calculate_slope(df, length):
     return 0.0
 
 def apply_range_filter(value, min_val, max_val):
-    """
-    Проверяет попадает ли value в диапазон [min_val, max_val].
-    0 = фильтр по этой границе выключен.
-    """
     if value is None:
         return False
-    if min_val > 0 and value < min_val:
+    # min_val: 0 = выключен, иначе применяем
+    if min_val != 0 and value < min_val:
         return False
-    if max_val > 0 and value > max_val:
+    # max_val: 0 = выключен, иначе применяем
+    if max_val != 0 and value > max_val:
         return False
     return True
+
+def check_strategy_filters(strat_cfg, side, natr, delta_pct, candle_vol_m, corr):
+    """
+    Проверяет все фильтры конкретной стратегии для конкретной стороны (BUY/SELL).
+    Возвращает True если сделка проходит все фильтры.
+    """
+    f = strat_cfg.get(side, {})
+    if not f:
+        return True  # нет фильтров — пропускаем
+
+    today = datetime.utcnow().strftime("%A").lower()
+    skip_days = [d.lower() for d in f.get("SKIP_DAYS", [])]
+    if today in skip_days:
+        return False
+
+    if f.get("USE_NATR_FILTER", False):
+        if not apply_range_filter(natr, f.get("NATR_MIN", 0), f.get("NATR_MAX", 0)):
+            return False
+
+    if f.get("USE_DELTA_FILTER", False):
+        if side == "BUY":
+            if not apply_range_filter(delta_pct, f.get("DELTA_MIN", 0), f.get("DELTA_MAX", 0)):
+                return False
+        else:
+            # SELL: delta должна быть отрицательной
+            if not apply_range_filter(-delta_pct, f.get("DELTA_MIN", 0), f.get("DELTA_MAX", 0)):
+                return False
+
+    if f.get("USE_VOLUME_FILTER", False):
+        if not apply_range_filter(candle_vol_m, f.get("VOLUME_MIN", 0), f.get("VOLUME_MAX", 0)):
+            return False
+
+    if f.get("USE_CORREL_FILTER", False) and corr is not None:
+        try:
+            corr_val = float(corr)
+            if not apply_range_filter(corr_val, f.get("CORREL_MIN", 0), f.get("CORREL_MAX", 0)):
+                return False
+        except (ValueError, TypeError):
+            pass
+
+    return True
+
+def calculate_delta(last_row):
+    """Delta по формуле: buyVol = volume * (close-low)/(high-low)"""
+    rng = last_row["high"] - last_row["low"]
+    if rng == 0:
+        return 0.0
+    buy_vol  = last_row["volume"] * (last_row["close"] - last_row["low"]) / rng
+    sell_vol = last_row["volume"] - buy_vol
+    return round((buy_vol - sell_vol) / last_row["volume"] * 100, 2)
 
 def check_trendline_signal(symbol):
     klines = client.futures_klines(
@@ -485,6 +547,7 @@ def check_trendline_signal(symbol):
     last_idx = len(df) - 2  # последняя закрытая свеча
     last = df.iloc[last_idx]
     prev = df.iloc[last_idx - 1]
+    delta_pct = calculate_delta(last)
 
     # ===== EMA фильтр =====
     bull_trend = last["ema20"] > last["ema200"]
@@ -591,6 +654,7 @@ def check_trendline_signal(symbol):
         "volText":   f"x{current_vol/avg_vol:.2f}" if avg_vol > 0 else "x0",
         "volume_24h": volume_24h,
         "swing_num": swing_num,
+        "delta_pct": delta_pct,
         "relvol":    relvol if relvol is not None else "N/A",
         "upper":     round(upper, 6),
         "lower":     round(lower, 6),
@@ -686,12 +750,6 @@ def main():
 
             # После расчёта corr_text добавь:
 
-            # ===== Фильтр по дням =====
-            today = datetime.utcnow().strftime("%A").lower()  # "monday", "tuesday" ...
-            if today in SKIP_DAYS:
-                print(f"⏭️ {symbol} пропущен — день {today} в SKIP_DAYS")
-                return
-
             # ===== Фильтр по корреляции =====
             if USE_CORREL_FILTER and isinstance(corr_text, float):
                 side = "BUY" if any("BUY" in s for s in res["signals"]) else "SELL"
@@ -705,8 +763,19 @@ def main():
                         return
 
             trade_id   = get_next_trade_id()
+            # Стало — каждая стратегия проверяет свои фильтры:
+            natr_val     = res["natr"]
+            delta_val    = res.get("delta_pct", 0)
+            vol_m        = res["volume_24h"] / 1_000_000  # или candle vol если нужен
+            corr_val     = corr_text
+
             strategies = {}
             for name, strat_cfg in STRATEGIES.items():
+                # Проверяем фильтры этой стратегии для этой стороны
+                if not check_strategy_filters(strat_cfg, side, natr_val, delta_val, vol_m, corr_val):
+                    print(f"⏭️ {name} пропущена для {symbol} {side} — не прошла фильтры")
+                    continue
+
                 if side == "BUY":
                     tp = entry_price * (1 + strat_cfg["tp"])
                     sl = entry_price * (1 - abs(strat_cfg["sl"]))
@@ -714,6 +783,11 @@ def main():
                     tp = entry_price * (1 - strat_cfg["tp"])
                     sl = entry_price * (1 + abs(strat_cfg["sl"]))
                 strategies[name] = {"tp": tp, "sl": sl, "status": "OPEN"}
+
+            # Если ни одна стратегия не прошла — не открываем сделку
+            if not strategies:
+                print(f"⏭️ {symbol} {side} — все стратегии отфильтрованы, сделка не открыта")
+                return
 
             with TRADES_LOCK:
                 ACTIVE_TRADES[trade_id] = {
@@ -734,6 +808,7 @@ def main():
                     "entry_price": entry_price,
                     "natr":        res["natr"],
                     "swing_num":   res["swing_num"],
+                    "delta_pct":   res.get("delta_pct"),
                     "atr_ratio_50": res["atr_ratio_50"],
                     "atr_ratio_75": res["atr_ratio_75"],
                     "atr_ratio_100": res["atr_ratio_100"],
@@ -819,6 +894,7 @@ def main():
 
     chunk_size = 10
 
+    mark_twm = None
     while True:
         try:
             open_syms = get_symbols_with_open_trades()
@@ -856,7 +932,8 @@ def main():
                 send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {err_str}")
             save_active_trades()
             try:
-                twm.stop()
+                if mark_twm:
+                    mark_twm.stop()
             except Exception:
                 pass
             time.sleep(30)

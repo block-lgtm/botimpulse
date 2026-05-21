@@ -319,18 +319,12 @@ def get_stats_detailed(bot_name=None):
         conn = get_conn()
         try:
             if bot_name:
+                # bot_name вариант:
                 rows = conn.execute("""
-                    SELECT
-                        s.strategy,
-                        s.status,
-                        s.close_time,
-                        t.open_time,
-                        t.symbol,
-                        COUNT(*) as cnt
+                    SELECT s.strategy, s.status, s.close_time, t.open_time, t.symbol
                     FROM trade_strategies s
                     JOIN trades t ON t.id = s.trade_id
                     WHERE s.status IN ('TP','SL') AND t.bot_name = ?
-                    GROUP BY s.trade_id, s.strategy
                 """, (bot_name,)).fetchall()
             else:
                 rows = conn.execute("""
