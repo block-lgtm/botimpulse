@@ -169,7 +169,7 @@ def check_and_close_strategies(symbol, price_high, price_low):
                         result = "TP"
                 if result:
                     strat["status"] = result
-                    strat["close_time"] = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                    strat["close_time"] = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
                     update_strategy_status(trade_id, strat_name, result)
                     Thread(
                         target=update_trade_status_in_excel,
@@ -497,7 +497,7 @@ def check_strategy_filters(strat_cfg, side, natr, delta_pct, candle_vol_m, corr)
     if not f:
         return True  # нет фильтров — пропускаем
 
-    today = datetime.utcnow().strftime("%A").lower()
+    today = datetime.now(UTC).strftime("%A").lower()
     skip_days = [d.lower() for d in f.get("SKIP_DAYS", [])]
     if today in skip_days:
         return False
@@ -856,7 +856,7 @@ def main():
                     "side":        side,
                     "entry_price": entry_price,
                     "strategies":  strategies,
-                    "open_time":   datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                    "open_time":   datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
                 }
             save_active_trades()
 

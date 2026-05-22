@@ -1,7 +1,7 @@
 import sqlite3
 import os
 from threading import Lock
-from datetime import datetime
+from datetime import datetime, timezone
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "trades.db")
@@ -95,7 +95,7 @@ def insert_trade(trade_id, bot_name, trade_info, vol_text, vol_24h, corr_text):
                 trade_info["symbol"],
                 trade_info.get("side", ""),
                 trade_info["entry_price"],
-                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
                 trade_info.get("natr"),
                 vol_text,
                 vol_24h,
@@ -145,7 +145,7 @@ def update_strategy_status(trade_id, strategy_name, status):
     with _DB_LOCK:
         conn = get_conn()
         try:
-            now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
             conn.execute("""
                 UPDATE trade_strategies
                 SET status = ?, close_time = ?
