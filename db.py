@@ -128,9 +128,9 @@ def insert_trade(trade_id, bot_name, trade_info, vol_text, vol_24h, corr_text):
         except Exception as e:
             import traceback
             print(f"Ошибка insert_trade {trade_id}: {e}")
-        traceback.print_exc()
-            finally:
-                conn.close()
+            traceback.print_exc()
+        finally:
+            conn.close()
 
 
 # ================================================================
