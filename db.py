@@ -126,7 +126,9 @@ def insert_trade(trade_id, bot_name, trade_info, vol_text, vol_24h, corr_text):
 
             conn.commit()
         except Exception as e:
+            import traceback
             print(f"Ошибка insert_trade {trade_id}: {e}")
+    traceback.print_exc()
         finally:
             conn.close()
 
@@ -164,7 +166,9 @@ def update_strategy_status(trade_id, strategy_name, status):
 
             conn.commit()
         except Exception as e:
+            import traceback
             print(f"Ошибка update_strategy_status {trade_id} {strategy_name}: {e}")
+            traceback.print_exc()
         finally:
             conn.close()
 
@@ -185,6 +189,7 @@ def get_open_trades():
                 JOIN trade_strategies s ON s.trade_id = t.id
                 WHERE t.id IN (
                     SELECT DISTINCT trade_id FROM trade_strategies WHERE status = 'OPEN'
+                    AND tp IS NOT NULL
                 )
                 ORDER BY t.open_time DESC
             """).fetchall()

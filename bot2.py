@@ -201,7 +201,9 @@ def get_next_trade_id():
     with _ID_LOCK:
         LAST_TRADE_ID += 1
         save_trade_id(LAST_TRADE_ID)
-        return f"{LAST_TRADE_ID:05d}"
+        # Префикс SP для volumespike, TL для trendline
+        prefix = "SP" if "SP" in BOT_NAME else "TL"
+        return f"{prefix}{LAST_TRADE_ID:05d}"
 
 # ================= TELEGRAM =================
 def send_telegram(message: str):
@@ -665,6 +667,51 @@ def check_trendline_signal(symbol):
         "expansion_5": expansion_5,
     }
 
+# Глобальная переменная для markPrice WebSocket
+_mark_twm = None
+_mark_subscribed = set()
+_mark_lock = Lock()
+
+def subscribe_mark_price(symbol):
+    global _mark_twm
+    with _mark_lock:
+        if symbol in _mark_subscribed:
+            return
+        try:
+            if _mark_twm is None:
+                _mark_twm = ThreadedWebsocketManager()
+                _mark_twm.start()
+            stream = f"{symbol.lower()}@markPrice@1s"
+            _mark_twm.start_multiplex_socket(
+                callback=handle_mark_price_global,
+                streams=[stream]
+            )
+            _mark_subscribed.add(symbol)
+            print(f"📡 markPrice подписка: {symbol}")
+        except Exception as e:
+            print(f"Ошибка подписки markPrice {symbol}: {e}")
+
+def handle_mark_price_global(msg):
+    try:
+        data = msg.get('data', msg)
+        if data.get('e') != 'markPriceUpdate':
+            return
+        symbol = data.get('s')
+        price  = float(data.get('p', 0))
+        if price <= 0:
+            return
+        with TRADES_LOCK:
+            has_open = any(
+                trade["symbol"] == symbol and
+                any(s["status"] == "OPEN" for s in trade["strategies"].values())
+                for trade in ACTIVE_TRADES.values()
+            )
+        if not has_open:
+            return
+        check_and_close_strategies(symbol, price, price)
+    except Exception as e:
+        print(f"Ошибка handle_mark_price: {e}")
+
 # ================= MAIN =================
 def main():
     init_db()
@@ -775,7 +822,7 @@ def main():
                 if not check_strategy_filters(strat_cfg, side, natr_val, delta_val, vol_m, corr_val):
                     print(f"⏭️ {name} пропущена для {symbol} {side} — не прошла фильтры")
                     # Записываем прочерк — следим за ценой не будем, но в истории видно
-                    strategies[name] = {"tp": None, "sl": None, "status": "—"}
+                    strategies[name] = {"tp": None, "sl": None, "status": "SKIP"}
                     continue
                 if side == "BUY":
                     tp = entry_price * (1 + strat_cfg["tp"])
@@ -799,6 +846,9 @@ def main():
                     "open_time":   datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 }
             save_active_trades()
+
+            # ===== Подписываемся на markPrice для нового символа =====
+            subscribe_mark_price(symbol)
 
             write_trade_to_excel(
                 trade_id,
@@ -863,27 +913,6 @@ def main():
 
     def handle_kline(msg):
         task_queue.put(msg)
-        
-    def handle_mark_price(msg):
-        try:
-            data = msg.get('data', msg)
-            if data.get('e') != 'markPriceUpdate':
-                return
-            symbol = data.get('s')
-            price  = float(data.get('p', 0))
-            if price <= 0:
-                return
-            with TRADES_LOCK:
-                has_open = any(
-                    trade["symbol"] == symbol and
-                    any(s["status"] == "OPEN" for s in trade["strategies"].values())
-                    for trade in ACTIVE_TRADES.values()
-                )
-            if not has_open:
-                return
-            check_and_close_strategies(symbol, price, price)
-        except Exception as e:
-            print(f"Ошибка handle_mark_price: {e}")
     
     def worker():
         while True:
@@ -908,16 +937,6 @@ def main():
                 streams = [f"{s.lower()}@kline_1h" for s in all_symbols[i:i+chunk_size]]
                 twm.start_multiplex_socket(callback=handle_kline, streams=streams)
             
-            # markPrice для real-time TP/SL
-            open_syms_now = get_symbols_with_open_trades()
-            if open_syms_now:
-                mark_twm = ThreadedWebsocketManager()
-                mark_twm.start()
-                for i in range(0, len(open_syms_now), chunk_size):
-                    streams = [f"{s.lower()}@markPrice@1s" for s in list(open_syms_now)[i:i+chunk_size]]
-                    mark_twm.start_multiplex_socket(callback=handle_mark_price, streams=streams)
-                print(f"📡 markPrice запущен для {len(open_syms_now)} символов")
-            
             print("🟢 WebSocket запущен")
             send_telegram(f"🟢 {BOT_NAME} WebSocket запущен")
 
@@ -933,8 +952,7 @@ def main():
                 send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {err_str}")
             save_active_trades()
             try:
-                if mark_twm:
-                    mark_twm.stop()
+                twm.stop()          # ← добавить
             except Exception:
                 pass
             time.sleep(30)

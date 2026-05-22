@@ -6,7 +6,7 @@
   "ATR_LEN": 50,
   "EMA_FAST": 20,
   "EMA_SLOW": 200,
-  "SWING_LENGTH": 24,
+  "SWING_LENGTH": 50,
   "USE_ATR_SLOPE": true,
   "USE_STDEV_SLOPE": false,
   "USE_LINREG_SLOPE": false,
