@@ -808,8 +808,6 @@ def main():
                 print(f"Ошибка корреляции {symbol}: {e}")
                 corr_text = "N/A"
 
-            # После расчёта corr_text добавь:
-
             # ===== Фильтр по корреляции =====
             if USE_CORREL_FILTER and isinstance(corr_text, float):
                 side = "BUY" if any("BUY" in s for s in res["signals"]) else "SELL"
@@ -958,6 +956,17 @@ def main():
             time.sleep(24 * 60 * 60)
             print("♻️ Плановый перезапуск WebSocket...")
             save_active_trades()
+
+            # Сбрасываем markPrice чтобы после рестарта переподписался заново
+            global _mark_twm
+            with _mark_lock:
+                _mark_subscribed.clear()
+                if _mark_twm is not None:
+                    try:
+                        _mark_twm.stop()
+                    except Exception:
+                        pass
+                    _mark_twm = None
             twm.stop()
 
         except Exception as e:
