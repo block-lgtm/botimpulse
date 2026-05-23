@@ -712,6 +712,8 @@ def handle_mark_price_global(msg):
     except Exception as e:
         print(f"Ошибка handle_mark_price: {e}")
 
+_need_restart = False
+
 # ================= MAIN =================
 def main():
     init_db()
@@ -746,6 +748,8 @@ def main():
                 print(f"🔴 WebSocket ошибка: {msg}")
                 if "reset" in str(err_msg).lower() or "closed" in str(err_msg).lower():
                     send_telegram(f"🔴 {BOT_NAME} WebSocket ошибка: {err_msg}")
+                    global _need_restart
+                    _need_restart = True
                 return
 
             if 'data' not in msg or 'k' not in msg['data']:
@@ -937,12 +941,15 @@ def main():
             print("🟢 WebSocket запущен")
             send_telegram(f"🟢 {BOT_NAME} WebSocket запущен")
 
-            time.sleep(24 * 60 * 60)
-            print("♻️ Плановый перезапуск WebSocket...")
-            save_active_trades()
+            for _ in range(24 * 60):
+                time.sleep(60)
+                if _need_restart:
+                    print("🔄 Принудительный перезапуск по флагу ошибки...")
+                    _need_restart = False
+                    break
 
-            # Сбрасываем markPrice чтобы после рестарта переподписался заново
-            global _mark_twm
+            print("♻️ Перезапуск WebSocket...")
+            save_active_trades()
             with _mark_lock:
                 _mark_subscribed.clear()
                 if _mark_twm is not None:
@@ -951,7 +958,6 @@ def main():
                     except Exception:
                         pass
                     _mark_twm = None
-
             twm.stop()
 
         except Exception as e:

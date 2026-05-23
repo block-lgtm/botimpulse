@@ -116,12 +116,13 @@ def insert_trade(trade_id, bot_name, trade_info, vol_text, vol_24h, corr_text):
                 conn.execute("""
                     INSERT INTO trade_strategies
                         (trade_id, strategy, tp, sl, status)
-                    VALUES (?, ?, ?, ?, 'OPEN')
+                    VALUES (?, ?, ?, ?, ?)
                 """, (
                     trade_id,
                     strat_name,
                     strat_data["tp"],
                     strat_data["sl"],
+                    strat_data.get("status", "OPEN"),  # ← берём реальный статус
                 ))
 
             conn.commit()
