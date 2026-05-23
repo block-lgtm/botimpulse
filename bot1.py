@@ -715,7 +715,7 @@ def handle_mark_price_global(msg):
     except Exception as e:
         print(f"Ошибка handle_mark_price: {e}")
 
-_need_restart = False
+_need_restart = [False]
 
 # ================= MAIN =================
 def main():
@@ -754,8 +754,7 @@ def main():
                 print(f"🔴 WebSocket ошибка: {msg}")
                 if "reset" in str(err_msg).lower() or "closed" in str(err_msg).lower():
                     send_telegram(f"🔴 {BOT_NAME} WebSocket ошибка: {err_msg}")
-                    global _need_restart
-                    _need_restart = True
+                    _need_restart[0] = True
                 return
 
             if 'data' not in msg or 'k' not in msg['data']:
@@ -959,9 +958,9 @@ def main():
 
             for _ in range(24 * 60):
                 time.sleep(60)
-                if _need_restart:
+                if _need_restart[0]:
                     print("🔄 Принудительный перезапуск по флагу ошибки...")
-                    _need_restart = False
+                    _need_restart[0] = False
                     break
 
             print("♻️ Перезапуск WebSocket...")
