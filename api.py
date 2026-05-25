@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 from datetime import datetime, timezone
-from db import get_open_trades, get_closed_trades, get_stats, get_equity_curve, get_stats_detailed
+from db import get_open_trades, get_closed_trades, get_stats, get_equity_curve, get_stats_detailed, get_daily_stats
 
 app = FastAPI(title="Trading Bot Dashboard")
 
@@ -103,6 +103,21 @@ def stats(bot: str = None):
 @app.get("/stats/detailed")
 def stats_detailed(bot: str = None):
     return get_stats_detailed(bot_name=bot)
+
+@app.get("/stats/daily")
+def daily_stats(
+    bot: str = None,
+    date_from: str = None,
+    date_to: str = None,
+    strategies: str = None  # через запятую: "3:1,6:1"
+):
+    strats = strategies.split(",") if strategies else None
+    return get_daily_stats(
+        bot_name=bot,
+        date_from=date_from,
+        date_to=date_to,
+        strategies=strats
+    )
 
 @app.get("/equity")
 def equity(bot: str = None):

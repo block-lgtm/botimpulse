@@ -404,3 +404,79 @@ def get_stats_detailed(bot_name=None):
             return result
         finally:
             conn.close()
+
+def get_daily_stats(bot_name=None, date_from=None, date_to=None, strategies=None):
+    """
+    Статистика по дням для столбчатой диаграммы.
+    Возвращает список: [{date, tp, sl, pnl, winrate}, ...]
+    """
+    with _DB_LOCK:
+        conn = get_conn()
+        try:
+            conditions = ["s.status IN ('TP','SL')", "s.close_time IS NOT NULL"]
+            params = []
+
+            if bot_name and bot_name != "all":
+                conditions.append("t.bot_name = ?")
+                params.append(bot_name)
+            if date_from:
+                conditions.append("DATE(s.close_time) >= ?")
+                params.append(date_from)
+            if date_to:
+                conditions.append("DATE(s.close_time) <= ?")
+                params.append(date_to)
+            if strategies:
+                placeholders = ",".join("?" * len(strategies))
+                conditions.append(f"s.strategy IN ({placeholders})")
+                params.extend(strategies)
+
+            where = " AND ".join(conditions)
+            rows = conn.execute(f"""
+                SELECT
+                    DATE(s.close_time) as date,
+                    s.strategy,
+                    s.status,
+                    COUNT(*) as cnt
+                FROM trade_strategies s
+                JOIN trades t ON t.id = s.trade_id
+                WHERE {where}
+                GROUP BY DATE(s.close_time), s.strategy, s.status
+                ORDER BY date ASC
+            """, params).fetchall()
+
+            STRAT_PCT = {
+                "3:1": {"tp": 3, "sl": 1},
+                "6:1": {"tp": 6, "sl": 1},
+                "6:2": {"tp": 6, "sl": 2},
+                "10:3": {"tp": 10, "sl": 3},
+                "12:4": {"tp": 12, "sl": 4},
+            }
+
+            from collections import defaultdict
+            days = defaultdict(lambda: {"tp": 0, "sl": 0, "pnl": 0.0})
+
+            for row in rows:
+                d = row["date"]
+                s = row["strategy"]
+                pct = STRAT_PCT.get(s, {"tp": 0, "sl": 0})
+                if row["status"] == "TP":
+                    days[d]["tp"] += row["cnt"]
+                    days[d]["pnl"] += row["cnt"] * pct["tp"]
+                else:
+                    days[d]["sl"] += row["cnt"]
+                    days[d]["pnl"] -= row["cnt"] * pct["sl"]
+
+            result = []
+            for date in sorted(days.keys()):
+                d = days[date]
+                total = d["tp"] + d["sl"]
+                result.append({
+                    "date":    date,
+                    "tp":      d["tp"],
+                    "sl":      d["sl"],
+                    "pnl":     round(d["pnl"], 2),
+                    "winrate": round(d["tp"] / total * 100, 1) if total > 0 else 0,
+                })
+            return result
+        finally:
+            conn.close()
