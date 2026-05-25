@@ -716,6 +716,7 @@ _need_restart = [False]
 
 # ================= MAIN =================
 def main():
+    global _mark_twm, _need_restart  # ← оба сюда
     init_db()
     symbols = get_liquid_futures_symbols()
     print(f"✅ Ликвидные токены: {len(symbols)}")
@@ -823,7 +824,22 @@ def main():
                 if not check_strategy_filters(strat_cfg, side, natr_val, delta_val, vol_m, corr_val):
                     print(f"⏭️ {name} пропущена для {symbol} {side} — не прошла фильтры")
                     # Записываем прочерк — следим за ценой не будем, но в истории видно
-                    strategies[name] = {"tp": None, "sl": None, "status": "SKIP"}
+                    skip_reasons = []
+                    f = strat_cfg.get(side, {})
+                    if f.get("USE_NATR_FILTER") and not apply_range_filter(res["natr"], f.get("NATR_MIN",0), f.get("NATR_MAX",0)):
+                        skip_reasons.append("N")
+                    if f.get("USE_DELTA_FILTER") and not apply_range_filter(delta_val if side=="BUY" else -delta_val, f.get("DELTA_MIN",0), f.get("DELTA_MAX",0)):
+                        skip_reasons.append("D")
+                    if f.get("USE_VOLUME_FILTER") and not apply_range_filter(vol_m, f.get("VOLUME_MIN",0), f.get("VOLUME_MAX",0)):
+                        skip_reasons.append("V")
+                    if f.get("USE_CORREL_FILTER"):
+                        try:
+                            if not apply_range_filter(float(corr_val), f.get("CORREL_MIN",0), f.get("CORREL_MAX",0)):
+                                skip_reasons.append("C")
+                        except (ValueError, TypeError):
+                            pass
+                    skip_str = "SKIP:" + "".join(skip_reasons) if skip_reasons else "SKIP:DAY"
+                    strategies[name] = {"tp": None, "sl": None, "status": skip_str}
                     continue
                 if side == "BUY":
                     tp = entry_price * (1 + strat_cfg["tp"])

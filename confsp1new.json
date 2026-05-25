@@ -29,7 +29,7 @@
       "tp": 0.03,
       "sl": 0.01,
       "BUY": {
-        "USE_NATR_FILTER": false,
+        "USE_NATR_FILTER": true,
         "NATR_MIN": 1,
         "NATR_MAX": 4.5,
         "USE_DELTA_FILTER": true,
