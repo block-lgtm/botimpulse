@@ -735,6 +735,8 @@ def sync_active_trades_with_db():
         except Exception as e:
             print(f"Ошибка sync_active_trades: {e}")
 
+_need_restart = [False]
+
 # ================= MAIN =================
 def main():
     global _need_restart  # ← оба сюда
