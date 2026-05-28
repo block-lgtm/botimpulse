@@ -9,7 +9,6 @@ import json
 import argparse
 import openpyxl
 import math
-import asyncio
 from db import init_db, insert_trade, update_strategy_status
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
@@ -671,65 +670,40 @@ def check_volume_signal(symbol):
         "expansion_5": expansion_5,
     }
 
-# Глобальная переменная для markPrice WebSocket
-_mark_twm = None
-_mark_subscribed = set()
-_mark_lock = Lock()
+# Мониторинг цены через REST каждые 2 секунды
+_monitored_symbols = set()
+_monitor_lock = Lock()
 
-def _start_mark_twm():
-    """Запускает _mark_twm в отдельном потоке с собственным event loop."""
-    global _mark_twm
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    _mark_twm = ThreadedWebsocketManager()
-    _mark_twm.start()
+def start_price_monitor(symbol):
+    with _monitor_lock:
+        if symbol in _monitored_symbols:
+            return
+        _monitored_symbols.add(symbol)
 
-def subscribe_mark_price(symbol):
-    global _mark_twm
-    with _mark_lock:
-        if symbol in _mark_subscribed:
-            return
-        try:
-            if _mark_twm is None:
-                t = Thread(target=_start_mark_twm, daemon=True)
-                t.start()
-                t.join(timeout=5)  # ждём пока запустится
-            if _mark_twm is None:
-                print(f"❌ markPrice: не удалось запустить TWM для {symbol}")
-                return
-            stream = f"{symbol.lower()}@markPrice@1s"
-            _mark_twm.start_multiplex_socket(
-                callback=handle_mark_price_global,
-                streams=[stream]
-            )
-            _mark_subscribed.add(symbol)
-            print(f"📡 markPrice подписка: {symbol}")
-        except Exception as e:
-            print(f"Ошибка подписки markPrice {symbol}: {e}")
+    def monitor():
+        print(f"👁️ Мониторинг: {symbol}")
+        while True:
+            try:
+                with TRADES_LOCK:
+                    has_open = any(
+                        trade["symbol"] == symbol and
+                        any(s["status"] == "OPEN" for s in trade["strategies"].values())
+                        for trade in ACTIVE_TRADES.values()
+                    )
+                if not has_open:
+                    with _monitor_lock:
+                        _monitored_symbols.discard(symbol)
+                    print(f"👁️ Мониторинг остановлен: {symbol}")
+                    break
+                ticker = client.futures_symbol_ticker(symbol=symbol)
+                price = float(ticker["price"])
+                if price > 0:
+                    check_and_close_strategies(symbol, price, price)
+            except Exception as e:
+                print(f"Ошибка мониторинга {symbol}: {e}")
+            time.sleep(2)
 
-def handle_mark_price_global(msg):
-    try:
-        print(f"🔍 markPrice raw: {str(msg)[:200]}")
-        data = msg.get('data', msg)
-        if data.get('e') != 'markPriceUpdate':
-            return
-        symbol = data.get('s')
-        price  = float(data.get('p', 0))
-        if price <= 0:
-            return
-        with TRADES_LOCK:
-            has_open = any(
-                trade["symbol"] == symbol and
-                any(s["status"] == "OPEN" for s in trade["strategies"].values())
-                for trade in ACTIVE_TRADES.values()
-            )
-        if not has_open:
-            return
-        check_and_close_strategies(symbol, price, price)
-    except Exception as e:
-        print(f"Ошибка handle_mark_price: {e}")
-
-_need_restart = [False]
+    Thread(target=monitor, daemon=True).start()
 
 def sync_active_trades_with_db():
     import sqlite3
@@ -763,12 +737,12 @@ def sync_active_trades_with_db():
 
 # ================= MAIN =================
 def main():
-    global _mark_twm, _need_restart  # ← оба сюда
+    global _need_restart  # ← оба сюда
     init_db()
     # Переподписываемся на markPrice для уже открытых позиций при старте
     for trade in ACTIVE_TRADES.values():
         if any(s["status"] == "OPEN" for s in trade["strategies"].values()):
-            subscribe_mark_price(trade["symbol"])
+            start_price_monitor(trade["symbol"])
     Thread(target=sync_active_trades_with_db, daemon=True).start()
     symbols = get_liquid_futures_symbols()
     print(f"✅ Ликвидные токены: {len(symbols)}")
@@ -927,7 +901,7 @@ def main():
             save_active_trades()
 
             # ===== Подписываемся на markPrice для нового символа =====
-            subscribe_mark_price(symbol)
+            start_price_monitor(symbol)
 
             write_trade_to_excel(
                 trade_id,
@@ -1030,14 +1004,6 @@ def main():
 
             print("♻️ Перезапуск WebSocket...")
             save_active_trades()
-            with _mark_lock:
-                _mark_subscribed.clear()
-                if _mark_twm is not None:
-                    try:
-                        _mark_twm.stop()
-                    except Exception:
-                        pass
-                    _mark_twm = None
             twm.stop()
 
         except Exception as e:
