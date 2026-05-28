@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
 from datetime import datetime, timezone
-from db import get_open_trades, get_closed_trades, get_stats, get_equity_curve, get_stats_detailed, get_daily_stats, get_symbol_stats, get_weekday_stats
+from db import get_open_trades, get_closed_trades, get_stats, get_equity_curve, get_stats_detailed, get_daily_stats, get_symbol_stats, get_weekday_stats, manual_close_strategy
 
 app = FastAPI(title="Trading Bot Dashboard")
 
@@ -90,7 +90,7 @@ def open_trades():
 
 
 @app.get("/trades/closed")
-def closed_trades(limit: int = 200, bot: str = None):
+def closed_trades(limit: int = 3000, bot: str = None):
     rows   = get_closed_trades(limit=limit, bot_name=bot)
     trades = group_trades_by_id(rows)
     return {"trades": trades, "count": len(trades)}
@@ -129,6 +129,11 @@ def weekday_stats(bot: str = None, date_from: str = None, date_to: str = None, s
     strats = strategies.split(",") if strategies else None
     return get_weekday_stats(bot_name=bot, date_from=date_from, date_to=date_to, strategies=strats)
 
+@app.post("/trades/{trade_id}/close/{strategy}")
+def close_strategy(trade_id: str, strategy: str, price: float = 0):
+    result = manual_close_strategy(trade_id, strategy, price)
+    return result
+
 @app.get("/equity")
 def equity(bot: str = None):
     return get_equity_curve(bot_name=bot)
@@ -136,7 +141,7 @@ def equity(bot: str = None):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "time": datetime.utcnow().isoformat()}
+    return {"status": "ok", "time": datetime.now(timezone.utc).isoformat()}
 
 
 # ================================================================

@@ -199,8 +199,7 @@ def get_open_trades():
             conn.close()
 
 
-def get_closed_trades(limit=200, bot_name=None):
-    """Последние N закрытых сделок, опционально по боту."""
+def get_closed_trades(limit=3000, bot_name=None):
     with _DB_LOCK:
         conn = get_conn()
         try:
@@ -212,9 +211,13 @@ def get_closed_trades(limit=200, bot_name=None):
                            s.close_time as strat_close
                     FROM trades t
                     JOIN trade_strategies s ON s.trade_id = t.id
-                    WHERE t.close_time IS NOT NULL AND t.bot_name = ?
+                    WHERE t.id IN (
+                        SELECT id FROM trades
+                        WHERE close_time IS NOT NULL AND bot_name = ?
+                        ORDER BY close_time DESC
+                        LIMIT ?
+                    )
                     ORDER BY t.close_time DESC
-                    LIMIT ?
                 """, (bot_name, limit)).fetchall()
             else:
                 rows = conn.execute("""
@@ -224,9 +227,13 @@ def get_closed_trades(limit=200, bot_name=None):
                            s.close_time as strat_close
                     FROM trades t
                     JOIN trade_strategies s ON s.trade_id = t.id
-                    WHERE t.close_time IS NOT NULL
+                    WHERE t.id IN (
+                        SELECT id FROM trades
+                        WHERE close_time IS NOT NULL
+                        ORDER BY close_time DESC
+                        LIMIT ?
+                    )
                     ORDER BY t.close_time DESC
-                    LIMIT ?
                 """, (limit,)).fetchall()
             return [dict(r) for r in rows]
         finally:
@@ -565,5 +572,53 @@ def get_weekday_stats(bot_name=None, date_from=None, date_to=None, strategies=No
                         "pnl":round(d["pnl"],2),
                         "winrate":round(d["tp"]/total*100,1) if total>0 else 0})
             return result
+        finally:
+            conn.close()
+
+def manual_close_strategy(trade_id, strategy_name, close_price):
+    with _DB_LOCK:
+        conn = get_conn()
+        try:
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            # Получаем данные стратегии
+            row = conn.execute("""
+                SELECT s.tp, s.sl, t.entry_price, t.side
+                FROM trade_strategies s
+                JOIN trades t ON t.id = s.trade_id
+                WHERE s.trade_id = ? AND s.strategy = ?
+            """, (trade_id, strategy_name)).fetchone()
+            if not row:
+                return {"error": "not found"}
+
+            # Считаем PnL% чтобы определить TP или SL
+            entry = row["entry_price"]
+            side  = row["side"]
+            if side == "BUY":
+                pnl_pct = (close_price - entry) / entry * 100
+            else:
+                pnl_pct = (entry - close_price) / entry * 100
+
+            # Если в плюсе — считаем как TP, в минусе — как SL
+            status = "TP" if pnl_pct >= 0 else "SL"
+
+            conn.execute("""
+                UPDATE trade_strategies
+                SET status = ?, close_time = ?
+                WHERE trade_id = ? AND strategy = ?
+            """, (status, now, trade_id, strategy_name))
+
+            # Если все стратегии закрыты — закрываем сделку
+            open_count = conn.execute("""
+                SELECT COUNT(*) FROM trade_strategies
+                WHERE trade_id = ? AND status = 'OPEN'
+            """, (trade_id,)).fetchone()[0]
+            if open_count == 0:
+                conn.execute("UPDATE trades SET close_time = ? WHERE id = ?", (now, trade_id))
+
+            conn.commit()
+            return {"status": status, "pnl_pct": round(pnl_pct, 2)}
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            return {"error": str(e)}
         finally:
             conn.close()

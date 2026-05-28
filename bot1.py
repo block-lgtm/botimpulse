@@ -717,10 +717,45 @@ def handle_mark_price_global(msg):
 
 _need_restart = [False]
 
+def sync_active_trades_with_db():
+    import sqlite3
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trades.db")
+    """Каждые 30 сек убирает из ACTIVE_TRADES стратегии закрытые вручную через дашборд."""
+    while True:
+        time.sleep(30)
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            with TRADES_LOCK:
+                for trade_id, trade in list(ACTIVE_TRADES.items()):
+                    rows = conn.execute(
+                        "SELECT strategy, status FROM trade_strategies WHERE trade_id = ?",
+                        (trade_id,)
+                    ).fetchall()
+                    for row in rows:
+                        sname = row["strategy"]
+                        if sname in trade["strategies"] and trade["strategies"][sname]["status"] == "OPEN":
+                            if row["status"] not in ("OPEN", "SKIP"):
+                                trade["strategies"][sname]["status"] = row["status"]
+                                print(f"🔄 Синхронизировано: {trade_id} {sname} → {row['status']}")
+                    # Если все закрыты — убираем из активных
+                    if all(s["status"] != "OPEN" for s in trade["strategies"].values()):
+                        del ACTIVE_TRADES[trade_id]
+                        print(f"✅ Сделка {trade_id} удалена из активных")
+            conn.close()
+            save_active_trades()
+        except Exception as e:
+            print(f"Ошибка sync_active_trades: {e}")
+
 # ================= MAIN =================
 def main():
     global _mark_twm, _need_restart  # ← оба сюда
     init_db()
+    # Переподписываемся на markPrice для уже открытых позиций при старте
+    for trade in ACTIVE_TRADES.values():
+        if any(s["status"] == "OPEN" for s in trade["strategies"].values()):
+            subscribe_mark_price(trade["symbol"])
+    Thread(target=sync_active_trades_with_db, daemon=True).start()
     symbols = get_liquid_futures_symbols()
     print(f"✅ Ликвидные токены: {len(symbols)}")
 
