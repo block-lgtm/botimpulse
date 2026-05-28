@@ -323,7 +323,7 @@ def get_equity_curve(bot_name=None):
         finally:
             conn.close()
     
-def get_stats_detailed(bot_name=None):
+def get_stats_detailed(bot_name=None, date_from=None, date_to=None):
     """
     Расширенная статистика по стратегиям:
     среднее время в сделке + средний фандинг.
@@ -331,37 +331,34 @@ def get_stats_detailed(bot_name=None):
     with _DB_LOCK:
         conn = get_conn()
         try:
+            conditions = ["s.status IN ('TP','SL')"]
+            params = []
             if bot_name:
-                # bot_name вариант:
-                rows = conn.execute("""
-                    SELECT s.strategy, s.status, s.close_time, t.open_time, t.symbol
-                    FROM trade_strategies s
-                    JOIN trades t ON t.id = s.trade_id
-                    WHERE s.status IN ('TP','SL') AND t.bot_name = ?
-                """, (bot_name,)).fetchall()
-            else:
-                rows = conn.execute("""
-                    SELECT
-                        s.strategy,
-                        s.status,
-                        s.close_time,
-                        t.open_time,
-                        t.symbol
-                    FROM trade_strategies s
-                    JOIN trades t ON t.id = s.trade_id
-                    WHERE s.status IN ('TP','SL')
-                """).fetchall()
+                conditions.append("t.bot_name = ?")
+                params.append(bot_name)
+            if date_from:
+                conditions.append("DATE(s.close_time) >= ?")
+                params.append(date_from)
+            if date_to:
+                conditions.append("DATE(s.close_time) <= ?")
+                params.append(date_to)
+            where = " AND ".join(conditions)
+            rows = conn.execute(f"""
+                SELECT s.strategy, s.status, s.close_time, t.open_time, t.symbol
+                FROM trade_strategies s
+                JOIN trades t ON t.id = s.trade_id
+                WHERE {where}
+            """, params).fetchall()
 
-            # Считаем по каждой стратегии
             from collections import defaultdict
             data = defaultdict(lambda: {
                 "tp": 0, "sl": 0, "open": 0,
-                "durations": [],   # секунды
-                "fundings": [],    # % фандинга
+                "durations": [],
+                "fundings": [],
             })
 
-            FUNDING_RATE = 0.0001  # 0.01% — средняя ставка за сессию
-            FUNDING_INTERVAL = 8 * 3600  # каждые 8 часов в секундах
+            FUNDING_RATE = 0.0001
+            FUNDING_INTERVAL = 8 * 3600
 
             for row in rows:
                 s = row["strategy"]
@@ -369,45 +366,34 @@ def get_stats_detailed(bot_name=None):
                     data[s]["tp"] += 1
                 else:
                     data[s]["sl"] += 1
-
-                # Время в сделке
                 try:
                     open_dt  = datetime.strptime(row["open_time"],  "%Y-%m-%d %H:%M:%S")
                     close_dt = datetime.strptime(row["close_time"], "%Y-%m-%d %H:%M:%S")
                     duration = (close_dt - open_dt).total_seconds()
                     data[s]["durations"].append(duration)
-
-                    # Фандинг: кол-во сессий за время сделки
                     funding_sessions = duration / FUNDING_INTERVAL
-                    funding_pct = funding_sessions * FUNDING_RATE * 100
-                    data[s]["fundings"].append(funding_pct)
+                    data[s]["fundings"].append(funding_sessions * FUNDING_RATE * 100)
                 except Exception:
                     pass
 
-            # Итог
             result = {}
             for s in data:
                 d = data[s]
                 total = d["tp"] + d["sl"]
                 avg_dur = sum(d["durations"]) / len(d["durations"]) if d["durations"] else 0
                 avg_fund = sum(d["fundings"]) / len(d["fundings"]) if d["fundings"] else 0
-
-                # Форматируем время
                 hours   = int(avg_dur // 3600)
                 minutes = int((avg_dur % 3600) // 60)
-                avg_dur_str = f"{hours}ч {minutes}м" if hours > 0 else f"{minutes}м"
-
                 result[s] = {
                     "tp":       d["tp"],
                     "sl":       d["sl"],
                     "open":     d["open"],
                     "total":    total,
                     "winrate":  round(d["tp"] / total * 100, 1) if total > 0 else 0,
-                    "avg_duration": avg_dur_str,
+                    "avg_duration": f"{hours}ч {minutes}м" if hours > 0 else f"{minutes}м",
                     "avg_duration_seconds": round(avg_dur),
                     "avg_funding_pct": round(avg_fund, 4),
                 }
-
             return result
         finally:
             conn.close()

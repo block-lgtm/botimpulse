@@ -101,8 +101,8 @@ def stats(bot: str = None):
     return get_stats(bot_name=bot)
 
 @app.get("/stats/detailed")
-def stats_detailed(bot: str = None):
-    return get_stats_detailed(bot_name=bot)
+def stats_detailed(bot: str = None, date_from: str = None, date_to: str = None):
+    return get_stats_detailed(bot_name=bot, date_from=date_from, date_to=date_to)
 
 @app.get("/stats/daily")
 def daily_stats(
