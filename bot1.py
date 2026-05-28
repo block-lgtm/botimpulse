@@ -9,6 +9,7 @@ import json
 import argparse
 import openpyxl
 import math
+import asyncio
 from db import init_db, insert_trade, update_strategy_status
 from openpyxl.utils import get_column_letter
 from dotenv import load_dotenv
@@ -675,6 +676,14 @@ _mark_twm = None
 _mark_subscribed = set()
 _mark_lock = Lock()
 
+def _start_mark_twm():
+    """Запускает _mark_twm в отдельном потоке с собственным event loop."""
+    global _mark_twm
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    _mark_twm = ThreadedWebsocketManager()
+    _mark_twm.start()
+
 def subscribe_mark_price(symbol):
     global _mark_twm
     with _mark_lock:
@@ -682,8 +691,12 @@ def subscribe_mark_price(symbol):
             return
         try:
             if _mark_twm is None:
-                _mark_twm = ThreadedWebsocketManager()
-                _mark_twm.start()
+                t = Thread(target=_start_mark_twm, daemon=True)
+                t.start()
+                t.join(timeout=5)  # ждём пока запустится
+            if _mark_twm is None:
+                print(f"❌ markPrice: не удалось запустить TWM для {symbol}")
+                return
             stream = f"{symbol.lower()}@markPrice@1s"
             _mark_twm.start_multiplex_socket(
                 callback=handle_mark_price_global,
