@@ -696,6 +696,7 @@ def subscribe_mark_price(symbol):
 
 def handle_mark_price_global(msg):
     try:
+        print(f"🔍 markPrice raw: {str(msg)[:200]}")
         data = msg.get('data', msg)
         if data.get('e') != 'markPriceUpdate':
             return
