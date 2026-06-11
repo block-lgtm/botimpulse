@@ -66,7 +66,8 @@ client.FUTURES_URL = "https://demo-fapi.binance.com/fapi"
 
 BLACKLIST = {
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT",
-    "XRPUSDT", "ADAUSDT", "DOGEUSDT", "LINKUSDT"
+    "XRPUSDT", "ADAUSDT", "DOGEUSDT", "LINKUSDT",
+    "INTCUSDT",
 }
 
 # Стратегия 12:4 из конфига
@@ -159,7 +160,6 @@ def open_order(symbol, side, qty):
         return None
 
 def close_order(symbol, side, qty):
-    """Закрывает позицию в Hedge Mode (reduceOnly через противоположную сторону)."""
     position_side = "LONG" if side == "BUY" else "SHORT"
     close_side    = "SELL" if side == "BUY" else "BUY"
     try:
@@ -169,7 +169,7 @@ def close_order(symbol, side, qty):
             positionSide=position_side,
             type="MARKET",
             quantity=qty,
-            reduceOnly=False,   # в Hedge Mode reduceOnly не нужен
+            # убрали reduceOnly
         )
         print(f"✅ Позиция закрыта: {symbol} {side} {qty} | orderId={order['orderId']}")
         return order
