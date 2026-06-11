@@ -1,5 +1,4 @@
 from binance.client import Client
-from binance import ThreadedWebsocketManager
 import pandas as pd
 import time
 from datetime import datetime, UTC
@@ -979,47 +978,55 @@ def main():
 
     Thread(target=worker, daemon=True).start()
 
-    # ===== WebSocket с переподключением и плановым перезапуском =====
-    chunk_size = 10
+    # ===== REST polling вместо WebSocket =====
+    last_candle_time = {}
+    print("🟢 REST polling запущен")
+    send_telegram(f"🟢 {BOT_NAME} REST polling запущен")
 
     while True:
         try:
-            open_syms = get_symbols_with_open_trades()
-            all_symbols = list(set(symbols) | open_syms)
+            now = datetime.now(UTC)
+            # Проверяем только в первые 90 секунд после закрытия свечи (XX:00)
+            if now.minute == 0 and now.second < 120:
+                open_syms   = get_symbols_with_open_trades()
+                all_symbols = list(set(symbols) | open_syms)
+                print(f"🔄 Polling {len(all_symbols)} символов...")
 
-            twm = ThreadedWebsocketManager()
-            twm.start()
+                for symbol in all_symbols:
+                    try:
+                        klines = client.futures_klines(
+                            symbol=symbol,
+                            interval=Client.KLINE_INTERVAL_1HOUR,
+                            limit=2
+                        )
+                        candle_time = klines[-2][0]
 
-            for i in range(0, len(all_symbols), chunk_size):
-                streams = [f"{s.lower()}@kline_1h" for s in all_symbols[i:i+chunk_size]]
-                twm.start_multiplex_socket(callback=handle_kline, streams=streams)
+                        # Уже обрабатывали эту свечу?
+                        if last_candle_time.get(symbol) == candle_time:
+                            continue
+                        last_candle_time[symbol] = candle_time
 
-            print("🟢 WebSocket запущен")
-            send_telegram(f"🟢 {BOT_NAME} WebSocket запущен")
-
-            for _ in range(24 * 60):
-                time.sleep(60)
-                if _need_restart[0]:
-                    print("🔄 Принудительный перезапуск по флагу ошибки...")
-                    _need_restart[0] = False
-                    break
-
-            print("♻️ Перезапуск WebSocket...")
-            save_active_trades()
-            twm.stop()
+                        # Прогоняем через process_signal
+                        high = float(klines[-2][2])
+                        low  = float(klines[-2][3])
+                        task_queue.put({
+                            "data": {
+                                "k": {
+                                    "s": symbol,
+                                    "x": True,
+                                    "h": str(high),
+                                    "l": str(low),
+                                }
+                            }
+                        })
+                    except Exception as e:
+                        print(f"Ошибка poll {symbol}: {e}")
+                    time.sleep(0.05)  # пауза между символами чтобы не спамить API
 
         except Exception as e:
-            err_str = str(e)
-            print(f"🔴 WebSocket упал: {err_str}. Переподключение через 30 секунд...")
-            if "Socket Manager" not in err_str and "initialize" not in err_str:
-                send_telegram(f"🔴 {BOT_NAME} WebSocket упал: {err_str}")
-            save_active_trades()
-            try:
-                twm.stop()          # ← добавить
-            except Exception:
-                pass
-            time.sleep(30)
+            print(f"Ошибка polling loop: {e}")
 
+        time.sleep(10)  # проверяем каждые 10 секунд
 
 if __name__ == "__main__":
     main()
