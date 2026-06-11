@@ -335,6 +335,8 @@ def get_liquid_futures_symbols():
         sym = t["symbol"]
         if not sym.endswith("USDT") or sym in BLACKLIST:
             continue
+        if "_" in sym:          
+            continue
         if float(t["quoteVolume"]) < MIN_24H_VOLUME:
             continue
         symbols.append(sym)
