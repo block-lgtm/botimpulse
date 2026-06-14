@@ -109,25 +109,27 @@ def daily_stats(
     bot: str = None,
     date_from: str = None,
     date_to: str = None,
-    strategies: str = None  # через запятую: "3:1,6:1"
+    strategies: str = None,
+    side: str = None  
 ):
     strats = strategies.split(",") if strategies else None
     return get_daily_stats(
         bot_name=bot,
         date_from=date_from,
         date_to=date_to,
-        strategies=strats
+        strategies=strats,
+        side=side
     )
 
 @app.get("/stats/symbols")
-def symbol_stats(bot: str = None, date_from: str = None, date_to: str = None, strategies: str = None):
+def symbol_stats(bot: str = None, date_from: str = None, date_to: str = None, strategies: str = None, side: str = None):
     strats = strategies.split(",") if strategies else None
-    return get_symbol_stats(bot_name=bot, date_from=date_from, date_to=date_to, strategies=strats)
+    return get_symbol_stats(bot_name=bot, date_from=date_from, date_to=date_to, strategies=strats, side=side)
 
 @app.get("/stats/weekdays")
-def weekday_stats(bot: str = None, date_from: str = None, date_to: str = None, strategies: str = None):
+def weekday_stats(bot: str = None, date_from: str = None, date_to: str = None, strategies: str = None, side: str = None):
     strats = strategies.split(",") if strategies else None
-    return get_weekday_stats(bot_name=bot, date_from=date_from, date_to=date_to, strategies=strats)
+    return get_weekday_stats(bot_name=bot, date_from=date_from, date_to=date_to, strategies=strats, side=side)
 
 @app.post("/trades/{trade_id}/close/{strategy}")
 def close_strategy(trade_id: str, strategy: str, price: float = 0):
